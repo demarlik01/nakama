@@ -24,20 +24,25 @@ case "$1" in
         ;;
         
     "status")
-        echo "📊 Test Agent 현재 상태"
-        echo "------------------------"
-        
-        if [[ -f "agent.json" ]]; then
-            enabled=$(jq -r '.enabled' agent.json 2>/dev/null)
-            model=$(jq -r '.model' agent.json 2>/dev/null)
-            echo "상태: $enabled"
-            echo "모델: $model"
-            echo "설명: $(jq -r '.description' agent.json 2>/dev/null)"
+        if [[ -f "monitor.py" ]]; then
+            echo "📊 상세 상태 리포트 (Python 모니터링)"
+            python3 monitor.py
+        else
+            echo "📊 Test Agent 현재 상태"
+            echo "------------------------"
+            
+            if [[ -f "agent.json" ]]; then
+                enabled=$(jq -r '.enabled' agent.json 2>/dev/null)
+                model=$(jq -r '.model' agent.json 2>/dev/null)
+                echo "상태: $enabled"
+                echo "모델: $model"
+                echo "설명: $(jq -r '.description' agent.json 2>/dev/null)"
+            fi
+            
+            echo ""
+            echo "파일 현황:"
+            ls -la *.md *.json 2>/dev/null | head -10
         fi
-        
-        echo ""
-        echo "파일 현황:"
-        ls -la *.md *.json 2>/dev/null | head -10
         ;;
         
     "backup")
@@ -45,8 +50,26 @@ case "$1" in
         backup_dir="backup_$timestamp"
         mkdir -p "$backup_dir"
         
-        cp *.json *.md "$backup_dir/" 2>/dev/null
+        cp *.json *.md *.py *.sh "$backup_dir/" 2>/dev/null
         echo "💾 백업 완료: $backup_dir"
+        ;;
+        
+    "monitor")
+        if [[ -f "monitor.py" ]]; then
+            case "$2" in
+                "log")
+                    python3 monitor.py log
+                    ;;
+                "watch")
+                    python3 monitor.py watch
+                    ;;
+                *)
+                    python3 monitor.py
+                    ;;
+            esac
+        else
+            echo "❌ monitor.py 파일이 없습니다."
+        fi
         ;;
         
     *)
@@ -55,10 +78,15 @@ case "$1" in
         echo "사용법: $0 <명령>"
         echo ""
         echo "명령어:"
-        echo "  validate  - 설정 파일 검증"
-        echo "  status    - 현재 상태 확인"  
-        echo "  backup    - 설정 파일 백업"
+        echo "  validate     - 설정 파일 검증"
+        echo "  status       - 현재 상태 확인"  
+        echo "  backup       - 설정 파일 백업"
+        echo "  monitor      - 상태 리포트 생성"
+        echo "  monitor log  - 상태를 로그에 저장"
+        echo "  monitor watch- 지속적 모니터링"
         echo ""
-        echo "예시: $0 validate"
+        echo "예시:"
+        echo "  $0 validate"
+        echo "  $0 monitor watch"
         ;;
 esac
