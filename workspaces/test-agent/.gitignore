@@ -1,0 +1,31 @@
+# 로그 파일
+*.log
+logs/
+
+# 임시 파일
+*.tmp
+*.temp
+.DS_Store
+Thumbs.db
+
+# 환경 설정
+.env
+.env.local
+.env.production
+
+# 에디터/IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# 캐시
+node_modules/
+.cache/
+dist/
+
+# 민감한 정보
+secrets/
+private/
+*.key
+*.pem
