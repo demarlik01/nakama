@@ -67,6 +67,9 @@ export class ApiServer {
       return;
     }
 
+    // Close SSE connections first so HTTP server can shut down
+    this.sseManager.stop();
+
     await new Promise<void>((resolve, reject) => {
       this.server?.close((error?: Error) => {
         if (error !== undefined) {
@@ -76,8 +79,6 @@ export class ApiServer {
         resolve();
       });
     });
-
-    this.sseManager.stop();
     this.server = undefined;
     this.logger.info('API server stopped');
   }

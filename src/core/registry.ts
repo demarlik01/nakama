@@ -133,6 +133,8 @@ export class AgentRegistry extends EventEmitter<AgentRegistryEvents> {
         schedules: params.schedules,
         heartbeat: params.heartbeat,
         cron: params.cron,
+        limits: params.limits,
+        reactionTriggers: params.reactionTriggers,
       } satisfies AgentMetadata),
       writeFile(path.join(workspacePath, MEMORY_MD_FILE), '', 'utf8'),
       mkdir(path.join(workspacePath, MEMORY_DIR), { recursive: true }),
@@ -169,6 +171,8 @@ export class AgentRegistry extends EventEmitter<AgentRegistryEvents> {
       schedules: existing.schedules,
       heartbeat: existing.heartbeat,
       cron: existing.cron,
+      limits: existing.limits,
+      reactionTriggers: existing.reactionTriggers,
     };
 
     const mergedMetadata: AgentMetadata = {
@@ -182,6 +186,8 @@ export class AgentRegistry extends EventEmitter<AgentRegistryEvents> {
       schedules: params.schedules ?? currentMetadata.schedules,
       heartbeat: params.heartbeat ?? currentMetadata.heartbeat,
       cron: params.cron ?? currentMetadata.cron,
+      limits: params.limits ?? currentMetadata.limits,
+      reactionTriggers: params.reactionTriggers ?? currentMetadata.reactionTriggers,
     };
 
     await writeJson(metadataPath, mergedMetadata);
@@ -356,6 +362,8 @@ export class AgentRegistry extends EventEmitter<AgentRegistryEvents> {
       schedules: metadata.schedules,
       heartbeat: metadata.heartbeat,
       cron: metadata.cron,
+      limits: metadata.limits,
+      reactionTriggers: metadata.reactionTriggers,
     };
   }
 }
@@ -413,6 +421,8 @@ async function readJsonIfExists(filePath: string): Promise<AgentMetadata | null>
       schedules: asOptionalSchedules(parsed.schedules, 'schedules'),
       heartbeat: asOptionalHeartbeat(parsed.heartbeat, 'heartbeat'),
       cron: asOptionalCronJobs(parsed.cron, 'cron'),
+      limits: parsed.limits as AgentMetadata['limits'],
+      reactionTriggers: Array.isArray(parsed.reactionTriggers) ? (parsed.reactionTriggers as string[]) : undefined,
     };
 
     return metadata;
