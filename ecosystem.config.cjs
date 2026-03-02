@@ -6,6 +6,7 @@ module.exports = {
       node_args: '--experimental-specifier-resolution=node',
       env: {
         NODE_ENV: 'production',
+        CONFIG_PATH: './config.yaml',
       },
       max_restarts: 10,
       restart_delay: 5000,
