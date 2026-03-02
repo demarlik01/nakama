@@ -20,6 +20,7 @@ async function bootstrap(): Promise<void> {
 
   const registry = new AgentRegistry(workspacesRoot, logger.child('registry'));
   const dataDir = path.resolve(workspacesRoot, '..');
+  await import('fs/promises').then(fs => fs.mkdir(dataDir, { recursive: true }));
   const usageTracker = new UsageTracker(dataDir, logger.child('usage'));
   const sessionManager = new SessionManager(registry, config, logger.child('session'), usageTracker);
   const router = new MessageRouter(registry, sessionManager, logger.child('router'));

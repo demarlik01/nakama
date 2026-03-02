@@ -30,6 +30,10 @@ export class HeartbeatScheduler {
   register(agent: AgentDefinition): void {
     this.unregister(agent.id);
 
+    if (!agent.enabled) {
+      return;
+    }
+
     const hb = agent.heartbeat;
     if (hb === undefined || !hb.enabled) {
       return;
@@ -78,6 +82,10 @@ export class HeartbeatScheduler {
 
   /** Single heartbeat tick for an agent. */
   private async tick(agent: AgentDefinition): Promise<void> {
+    if (!agent.enabled) {
+      return;
+    }
+
     const hb = agent.heartbeat;
     if (hb === undefined || !hb.enabled) {
       return;

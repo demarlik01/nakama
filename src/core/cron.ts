@@ -28,6 +28,10 @@ export class CronScheduler {
   register(agent: AgentDefinition): void {
     this.unregisterAgent(agent.id);
 
+    if (!agent.enabled) {
+      return;
+    }
+
     const cronJobs = agent.cron;
     if (cronJobs === undefined || cronJobs.length === 0) {
       return;
