@@ -12,6 +12,7 @@ import type { UsageTracker } from '../core/usage.js';
 import { createLogger, type Logger } from '../utils/logger.js';
 import { createAgentsRouter } from './routes/agents.js';
 import { SSEManager } from './sse.js';
+import { createBasicAuthMiddleware } from './middleware/auth.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -94,6 +95,7 @@ export class ApiServer {
   private configureMiddleware(): void {
     this.app.disable('x-powered-by');
     this.app.use(express.json({ limit: '1mb' }));
+    this.app.use(createBasicAuthMiddleware(this.config));
 
     this.app.use((req: Request, _res: Response, next: NextFunction) => {
       this.logger.info('API request', {
@@ -128,7 +130,11 @@ export class ApiServer {
             auth: '***REDACTED***',
           },
           workspaces: this.config.workspaces,
-          api: this.config.api,
+          api: {
+            ...this.config.api,
+            ...(this.config.api.auth ? { auth: { username: '***', password: '***' } } : {}),
+          },
+          notifications: this.config.notifications,
           session: this.config.session,
           slack: {
             appToken: redactSecret(this.config.slack.appToken),

@@ -10,6 +10,7 @@ import { HeartbeatScheduler } from './core/heartbeat.js';
 import { SlackGateway } from './slack/app.js';
 import { createLogger } from './utils/logger.js';
 import { UsageTracker } from './core/usage.js';
+import { Notifier } from './core/notifier.js';
 
 async function bootstrap(): Promise<void> {
   const logger = createLogger('Bootstrap');
@@ -51,6 +52,11 @@ async function bootstrap(): Promise<void> {
 
   // Wire SSE manager to session manager
   sessionManager.setSSEManager(apiServer.getSSEManager());
+
+  // Wire error notifier
+  const notifier = new Notifier(config, logger.child('notifier'));
+  notifier.setSlackPoster((channel, text) => slackGateway.postMessage(channel, text));
+  sessionManager.setNotifier(notifier);
 
   await registry.start();
   await apiServer.start();

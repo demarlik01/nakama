@@ -157,9 +157,59 @@ export function createAgentsRouter(deps: AgentsRouterDependencies): Router {
     });
   });
 
-  router.get('/:id/logs', (req, res) => {
-    logger.info('Stub logs endpoint called', { agentId: req.params.id });
-    res.status(501).json({ error: 'Not implemented yet' });
+  router.get('/:id/logs', async (req, res) => {
+    const agent = deps.registry.getById(req.params.id);
+    if (agent === undefined) {
+      res.status(404).json({ error: 'Agent not found' });
+      return;
+    }
+
+    const limit = Math.min(Number(req.query.limit) || 100, 500);
+    const level = (req.query.level as string) || undefined;
+
+    try {
+      const { execSync } = await import('node:child_process');
+      // Search structured JSON logs for this agent's entries
+      // Logs are written to stdout as JSON lines; PM2 captures them in ~/.pm2/logs/
+      // For dev, we grep the process stdout. This reads PM2 log files if available.
+      const pm2LogPath = `${process.env.HOME}/.pm2/logs/agent-for-work-out.log`;
+      const { existsSync } = await import('node:fs');
+
+      let lines: string[] = [];
+
+      if (existsSync(pm2LogPath)) {
+        const raw = execSync(
+          `grep '"agentId":"${agent.id}"' "${pm2LogPath}" | tail -n ${limit}`,
+          { encoding: 'utf8', timeout: 5000 },
+        ).trim();
+        if (raw) lines = raw.split('\n');
+      }
+
+      // Also check recent structured logs from process stdout capture
+      // Parse JSON lines and filter
+      const logs = lines
+        .map((line) => {
+          try {
+            // PM2 prepends timestamp, strip it to find JSON
+            const jsonStart = line.indexOf('{');
+            if (jsonStart < 0) return null;
+            return JSON.parse(line.slice(jsonStart));
+          } catch {
+            return null;
+          }
+        })
+        .filter((entry): entry is Record<string, unknown> => {
+          if (!entry) return false;
+          if (level && entry.level !== level) return false;
+          return true;
+        })
+        .slice(-limit);
+
+      res.json({ logs, count: logs.length });
+    } catch {
+      // Fallback: no logs available
+      res.json({ logs: [], count: 0, note: 'No log files found. Logs are available when running under PM2.' });
+    }
   });
 
   router.get('/:id/sessions', (req, res) => {

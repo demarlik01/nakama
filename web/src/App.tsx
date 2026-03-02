@@ -5,6 +5,7 @@ import { Dashboard } from "@/pages/Dashboard";
 import { AgentDetail } from "@/pages/AgentDetail";
 import { NewAgent } from "@/pages/NewAgent";
 import { Health } from "@/pages/Health";
+import { Settings } from "@/pages/Settings";
 import { Sessions } from "@/pages/Sessions";
 
 export default function App() {
@@ -17,6 +18,7 @@ export default function App() {
           <Route path="/agents/new" element={<NewAgent />} />
           <Route path="/agents/:id" element={<AgentDetail />} />
           <Route path="/health" element={<Health />} />
+          <Route path="/settings" element={<Settings />} />
         </Route>
       </Routes>
       <Toaster />

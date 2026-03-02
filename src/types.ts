@@ -47,7 +47,8 @@ export interface AppConfig {
   slack: { appToken: string; botToken: string };
   llm: { provider: string; defaultModel: string; auth: string };
   workspaces: { root: string; shared: string };
-  api: { enabled: boolean; port: number };
+  api: { enabled: boolean; port: number; auth?: { username: string; password: string } };
+  notifications?: { adminSlackUser?: string };
   session: {
     idleTimeoutMin: number;
     maxQueueSize: number;
