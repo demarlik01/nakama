@@ -88,9 +88,6 @@ async function bootstrap(): Promise<void> {
       slackGateway.stop(),
       apiServer.stop(),
     ]).catch((err: unknown) => {
-      logger.error('Error stopping listeners', {
-        error: err instanceof Error ? err.message : String(err),
-      });
     });
 
     // Wait for active sessions to complete (up to 30s)
