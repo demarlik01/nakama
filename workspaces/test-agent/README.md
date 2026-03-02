@@ -38,7 +38,37 @@
 
 그냥 자연스럽게 대화하면 돼! 상황을 파악해서 필요한 도움을 알아서 제공할게.
 
+## 🚀 설정 및 관리
+
+### 초기 설정
+```bash
+./setup.sh  # 개발환경 자동 설정
+```
+
+### 관리 명령어
+```bash
+./agent-utils.sh status        # 현재 상태 확인
+./agent-utils.sh validate      # 설정 파일 검증
+./agent-utils.sh monitor       # 모니터링 리포트
+./agent-utils.sh monitor watch # 실시간 모니터링  
+./agent-utils.sh backup        # 백업 생성
+```
+
+### 모니터링
+```bash
+python3 monitor.py        # 단일 상태 체크
+python3 monitor.py log    # 로그 파일 저장
+python3 monitor.py watch  # 지속적 모니터링
+```
+
+## 🛠️ 자동화 기능
+
+- **Pre-commit 훅**: 커밋 전 자동 검증 (JSON, Python 문법 체크)
+- **상태 모니터링**: 실시간 에이전트 상태 추적
+- **자동 백업**: 설정 파일 자동 백업 시스템
+
 ## 📝 업데이트 로그
 
 - v1.0: 기본 에이전트 설정 완료
 - v1.1: 문서 구조 개선 및 README 추가
+- v1.2: 모니터링 시스템 및 자동화 도구 완성
