@@ -9,6 +9,7 @@ export interface AgentSchedule {
 export interface AgentDefinition {
   id: string;
   displayName: string;
+  description?: string;
   workspacePath: string;
   slackChannels: string[];
   slackUsers: string[];
@@ -33,6 +34,7 @@ export interface AppConfig {
 
 export interface AgentMetadata {
   displayName: string;
+  description?: string;
   slackChannels: string[];
   slackUsers: string[];
   slackBotUserId?: string;
@@ -44,6 +46,7 @@ export interface AgentMetadata {
 export interface CreateAgentParams {
   id: string;
   displayName: string;
+  description?: string;
   agentsMd: string;
   slackChannels: string[];
   slackUsers: string[];
@@ -54,6 +57,7 @@ export interface CreateAgentParams {
 
 export interface UpdateAgentParams {
   displayName?: string;
+  description?: string;
   slackChannels?: string[];
   slackUsers?: string[];
   slackBotUserId?: string;

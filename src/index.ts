@@ -21,6 +21,7 @@ async function bootstrap(): Promise<void> {
   const apiServer = new ApiServer(config, {
     registry,
     sessionManager,
+    slackConnected: () => slackGateway.isConnected(),
     logger: logger.child('api'),
   });
   const slackGateway = new SlackGateway(config, router, sessionManager, logger.child('slack'));
@@ -36,15 +37,71 @@ async function bootstrap(): Promise<void> {
     workspacesRoot,
   });
 
+  let shuttingDown = false;
+
   const shutdown = async (signal: string): Promise<void> => {
+    if (shuttingDown) return;
+    shuttingDown = true;
+
     logger.info('Shutdown initiated', { signal });
 
+    // Stop accepting new Slack messages
+    await slackGateway.stop().catch((err: unknown) => {
+      logger.error('Error stopping Slack gateway', {
+        error: err instanceof Error ? err.message : String(err),
+      });
+    });
+
+    // Wait for active sessions to complete (up to 30s)
+    const activeSessions = sessionManager.getAllSessions().filter(
+      (s) => s.status === 'running',
+    );
+
+    if (activeSessions.length > 0) {
+      logger.info('Waiting for active sessions to complete', {
+        count: activeSessions.length,
+      });
+
+      const SHUTDOWN_TIMEOUT_MS = 30_000;
+      const waitStart = Date.now();
+
+      await new Promise<void>((resolve) => {
+        const check = () => {
+          const running = sessionManager.getAllSessions().filter(
+            (s) => s.status === 'running',
+          );
+          if (running.length === 0 || Date.now() - waitStart > SHUTDOWN_TIMEOUT_MS) {
+            if (running.length > 0) {
+              logger.warn('Shutdown timeout reached, forcing disposal', {
+                remaining: running.length,
+              });
+            }
+            resolve();
+            return;
+          }
+          setTimeout(check, 500);
+        };
+        check();
+      });
+    }
+
+    // Dispose all remaining sessions
+    const remaining = sessionManager.getAllSessions();
+    for (const session of remaining) {
+      await sessionManager.disposeSession(session.agentId).catch((err: unknown) => {
+        logger.error('Error disposing session during shutdown', {
+          agentId: session.agentId,
+          error: err instanceof Error ? err.message : String(err),
+        });
+      });
+    }
+
     await Promise.allSettled([
-      slackGateway.stop(),
       apiServer.stop(),
       registry.stop(),
     ]);
 
+    logger.info('Shutdown complete');
     process.exit(0);
   };
 

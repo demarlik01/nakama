@@ -20,6 +20,7 @@
     "@mariozechner/pi-ai": "latest",
     "@mariozechner/pi-coding-agent": "latest",
     "@slack/bolt": "^4.x",
+    "@slack/web-api": "^7.14.1",
     "chokidar": "^4.x",
     "express": "^4.x",
     "yaml": "^2.x"

@@ -113,7 +113,7 @@ export class AgentRegistry extends EventEmitter<AgentRegistryEvents> {
   async create(params: CreateAgentParams): Promise<AgentDefinition> {
     const id = normalizeAgentId(params.id);
     if (this.agents.has(id)) {
-      throw new Error(`Agent already exists: ${id}`);
+      throw new ConflictError(`Agent already exists: ${id}`);
     }
 
     const workspacePath = path.join(this.workspacesRoot, id);
@@ -123,6 +123,7 @@ export class AgentRegistry extends EventEmitter<AgentRegistryEvents> {
       writeFile(path.join(workspacePath, AGENTS_MD_FILE), normalizeFile(params.agentsMd), 'utf8'),
       writeJson(path.join(workspacePath, AGENT_JSON_FILE), {
         displayName: params.displayName,
+        description: params.description,
         slackChannels: params.slackChannels,
         slackUsers: params.slackUsers,
         model: params.model,
@@ -149,12 +150,13 @@ export class AgentRegistry extends EventEmitter<AgentRegistryEvents> {
   async update(id: string, params: UpdateAgentParams): Promise<AgentDefinition> {
     const existing = this.agents.get(id);
     if (existing === undefined) {
-      throw new Error(`Agent not found: ${id}`);
+      throw new NotFoundError(`Agent not found: ${id}`);
     }
 
     const metadataPath = path.join(existing.workspacePath, AGENT_JSON_FILE);
     const currentMetadata = (await readJsonIfExists(metadataPath)) ?? {
       displayName: existing.displayName,
+      description: existing.description,
       slackChannels: existing.slackChannels,
       slackUsers: existing.slackUsers,
       slackBotUserId: existing.slackBotUserId,
@@ -165,6 +167,7 @@ export class AgentRegistry extends EventEmitter<AgentRegistryEvents> {
 
     const mergedMetadata: AgentMetadata = {
       displayName: params.displayName ?? currentMetadata.displayName,
+      description: params.description ?? currentMetadata.description,
       slackChannels: params.slackChannels ?? currentMetadata.slackChannels,
       slackUsers: params.slackUsers ?? currentMetadata.slackUsers,
       slackBotUserId: params.slackBotUserId ?? currentMetadata.slackBotUserId,
@@ -190,7 +193,7 @@ export class AgentRegistry extends EventEmitter<AgentRegistryEvents> {
   async remove(id: string): Promise<void> {
     const existing = this.agents.get(id);
     if (existing === undefined) {
-      throw new Error(`Agent not found: ${id}`);
+      throw new NotFoundError(`Agent not found: ${id}`);
     }
 
     const archiveRoot = path.join(this.workspacesRoot, ARCHIVE_DIR);
@@ -243,7 +246,7 @@ export class AgentRegistry extends EventEmitter<AgentRegistryEvents> {
           error: error instanceof Error ? error.message : String(error),
         });
       });
-    }, 200);
+    }, 500);
   }
 
   private async refreshFromDisk(): Promise<void> {
@@ -335,6 +338,7 @@ export class AgentRegistry extends EventEmitter<AgentRegistryEvents> {
     return {
       id,
       displayName: metadata.displayName,
+      description: metadata.description,
       workspacePath,
       slackChannels: metadata.slackChannels,
       slackUsers: metadata.slackUsers,
@@ -390,6 +394,7 @@ async function readJsonIfExists(filePath: string): Promise<AgentMetadata | null>
 
     const metadata: AgentMetadata = {
       displayName: asString(parsed.displayName, 'displayName'),
+      description: asOptionalString(parsed.description, 'description'),
       slackChannels: asStringArray(parsed.slackChannels, 'slackChannels'),
       slackUsers: asStringArray(parsed.slackUsers, 'slackUsers'),
       enabled: asBoolean(parsed.enabled, 'enabled'),
@@ -482,4 +487,18 @@ function asOptionalString(value: unknown, label: string): string | undefined {
 
 function isObject(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+export class ConflictError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'ConflictError';
+  }
+}
+
+export class NotFoundError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'NotFoundError';
+  }
 }

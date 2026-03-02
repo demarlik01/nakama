@@ -1,3 +1,5 @@
+import { writeFile } from 'node:fs/promises';
+import path from 'node:path';
 import { Router, type Request, type Response } from 'express';
 
 import type {
@@ -7,6 +9,7 @@ import type {
   UpdateAgentParams,
 } from '../../types.js';
 import type { AgentRegistry } from '../../core/registry.js';
+import { ConflictError, NotFoundError } from '../../core/registry.js';
 import type { SessionManager } from '../../core/session.js';
 import { createLogger, type Logger } from '../../utils/logger.js';
 
@@ -26,7 +29,11 @@ export function createAgentsRouter(deps: AgentsRouterDependencies): Router {
       const agent = await deps.registry.create(payload);
       res.status(201).json({ agent });
     } catch (error) {
-      respondError(res, 400, error);
+      if (error instanceof ConflictError) {
+        respondError(res, 409, error);
+      } else {
+        respondError(res, 400, error);
+      }
     }
   });
 
@@ -55,22 +62,77 @@ export function createAgentsRouter(deps: AgentsRouterDependencies): Router {
     res.json({ agent });
   });
 
-  router.patch('/:id', async (req, res) => {
+  router.put('/:id', async (req, res) => {
     try {
       const payload = asUpdateAgentParams(req.body);
+
+      // Update AGENTS.md if provided
+      if (typeof req.body.agentsMd === 'string') {
+        const agent = deps.registry.getById(req.params.id);
+        if (agent === undefined) {
+          res.status(404).json({ error: 'Agent not found' });
+          return;
+        }
+        const agentsMdPath = path.join(agent.workspacePath, 'AGENTS.md');
+        const content = req.body.agentsMd as string;
+        await writeFile(agentsMdPath, content.endsWith('\n') ? content : `${content}\n`, 'utf8');
+      }
+
       const agent = await deps.registry.update(req.params.id, payload);
       res.json({ agent });
     } catch (error) {
-      respondError(res, 400, error);
+      if (error instanceof NotFoundError) {
+        respondError(res, 404, error);
+      } else {
+        respondError(res, 400, error);
+      }
+    }
+  });
+
+  router.patch('/:id', async (req, res) => {
+    try {
+      const payload = asUpdateAgentParams(req.body);
+
+      // Update AGENTS.md if provided
+      if (typeof req.body.agentsMd === 'string') {
+        const agent = deps.registry.getById(req.params.id);
+        if (agent === undefined) {
+          res.status(404).json({ error: 'Agent not found' });
+          return;
+        }
+        const agentsMdPath = path.join(agent.workspacePath, 'AGENTS.md');
+        const content = req.body.agentsMd as string;
+        await writeFile(agentsMdPath, content.endsWith('\n') ? content : `${content}\n`, 'utf8');
+      }
+
+      const agent = await deps.registry.update(req.params.id, payload);
+      res.json({ agent });
+    } catch (error) {
+      if (error instanceof NotFoundError) {
+        respondError(res, 404, error);
+      } else {
+        respondError(res, 400, error);
+      }
     }
   });
 
   router.delete('/:id', async (req, res) => {
     try {
+      // Dispose active session before removing
+      const session = deps.sessionManager.getActiveSession(req.params.id);
+      if (session !== undefined) {
+        await deps.sessionManager.disposeSession(req.params.id);
+        logger.info('Disposed active session before agent deletion', { agentId: req.params.id });
+      }
+
       await deps.registry.remove(req.params.id);
       res.status(204).send();
     } catch (error) {
-      respondError(res, 400, error);
+      if (error instanceof NotFoundError) {
+        respondError(res, 404, error);
+      } else {
+        respondError(res, 400, error);
+      }
     }
   });
 
@@ -97,7 +159,6 @@ export function createAgentsRouter(deps: AgentsRouterDependencies): Router {
 
   router.get('/:id/logs', (req, res) => {
     logger.info('Stub logs endpoint called', { agentId: req.params.id });
-    // TODO: Return persisted activity logs from workspace memory files.
     res.status(501).json({ error: 'Not implemented yet' });
   });
 
@@ -113,7 +174,6 @@ export function createAgentsRouter(deps: AgentsRouterDependencies): Router {
 
   router.get('/:id/usage', (req, res) => {
     logger.info('Stub usage endpoint called', { agentId: req.params.id });
-    // TODO: Return per-agent token and cost metrics once runtime telemetry is wired.
     res.status(501).json({ error: 'Not implemented yet' });
   });
 
@@ -151,6 +211,7 @@ function asCreateAgentParams(value: unknown): CreateAgentParams {
   return {
     id: asString(body.id, 'id'),
     displayName: asString(body.displayName, 'displayName'),
+    description: asOptionalString(body.description, 'description'),
     agentsMd: asString(body.agentsMd, 'agentsMd'),
     slackChannels: asStringArray(body.slackChannels, 'slackChannels'),
     slackUsers: asStringArray(body.slackUsers, 'slackUsers'),
@@ -165,6 +226,9 @@ function asUpdateAgentParams(value: unknown): UpdateAgentParams {
 
   if ('displayName' in body) {
     payload.displayName = asString(body.displayName, 'displayName');
+  }
+  if ('description' in body) {
+    payload.description = asOptionalString(body.description, 'description');
   }
   if ('slackChannels' in body) {
     payload.slackChannels = asStringArray(body.slackChannels, 'slackChannels');
@@ -183,7 +247,6 @@ function asUpdateAgentParams(value: unknown): UpdateAgentParams {
   }
 
   if ('schedules' in body) {
-    // TODO: Add strict schema parsing for schedules when scheduler module is implemented.
     payload.schedules = asAgentSchedules(body.schedules, 'schedules');
   }
 

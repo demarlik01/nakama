@@ -11,6 +11,7 @@ import { createAgentsRouter } from './routes/agents.js';
 export interface ApiServerDependencies {
   registry: AgentRegistry;
   sessionManager: SessionManager;
+  slackConnected?: () => boolean;
   logger?: Logger;
 }
 
@@ -90,6 +91,8 @@ export class ApiServer {
     this.app.get('/api/health', (_req, res) => {
       res.json({
         status: 'ok',
+        slackConnected: this.deps.slackConnected?.() ?? false,
+        agentCount: this.deps.registry.getAll().length,
         uptimeSec: Math.floor(process.uptime()),
       });
     });
