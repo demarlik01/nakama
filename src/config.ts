@@ -1,3 +1,4 @@
+import os from 'node:os';
 import { readFile } from 'node:fs/promises';
 import path from 'node:path';
 import YAML from 'yaml';
@@ -59,7 +60,7 @@ export function validateAppConfig(config: unknown): AppConfig {
   const server = requireObject(root.server, 'server');
   const slack = requireObject(root.slack, 'slack');
   const llm = requireObject(root.llm, 'llm');
-  const workspaces = requireObject(root.workspaces, 'workspaces');
+  const workspaces = (root.workspaces ?? {}) as Record<string, unknown>;
   const api = requireObject(root.api, 'api');
   const session = requireObject(root.session, 'session');
 
@@ -77,8 +78,8 @@ export function validateAppConfig(config: unknown): AppConfig {
       auth: requireString(llm.auth, 'llm.auth'),
     },
     workspaces: {
-      root: requireString(workspaces.root, 'workspaces.root'),
-      shared: requireString(workspaces.shared, 'workspaces.shared'),
+      root: (workspaces.root as string | undefined) ?? path.join(os.homedir(), '.agent-for-work', 'workspaces'),
+      shared: (workspaces.shared as string | undefined) ?? path.join(os.homedir(), '.agent-for-work', 'shared'),
     },
     api: {
       enabled: requireBoolean(api.enabled, 'api.enabled'),

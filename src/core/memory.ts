@@ -17,7 +17,17 @@ export async function buildSystemPrompt(agent: AgentDefinition): Promise<string>
     readFileIfExists(path.join(workspace, 'memory', `${yesterday}.md`)),
   ]);
 
-  return parts.filter((part): part is string => Boolean(part)).join('\n\n---\n\n');
+  const workspaceGuard = [
+    '## Workspace Boundary',
+    `Your working directory is: ${workspace}`,
+    'You MUST NOT access, read, or modify any files outside this directory.',
+    'Do not use ../ or absolute paths to escape your workspace.',
+    "Do not access other agents' workspaces or system files.",
+    'If a task requires files outside your workspace, ask the user for help.',
+  ].join('\n');
+
+  const content = parts.filter((part): part is string => Boolean(part)).join('\n\n---\n\n');
+  return workspaceGuard + '\n\n---\n\n' + content;
 }
 
 export async function readFileIfExists(filePath: string): Promise<string | null> {
