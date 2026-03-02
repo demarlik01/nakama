@@ -6,6 +6,19 @@ export interface AgentSchedule {
   deliverTo: string;
 }
 
+export interface HeartbeatConfig {
+  enabled: boolean;
+  intervalMin: number;
+  quietHours: [number, number];
+}
+
+export interface CronJobConfig {
+  name: string;
+  schedule: string;
+  prompt: string;
+  channel: string;
+}
+
 export interface AgentDefinition {
   id: string;
   displayName: string;
@@ -17,6 +30,8 @@ export interface AgentDefinition {
   model?: string;
   enabled: boolean;
   schedules?: AgentSchedule[];
+  heartbeat?: HeartbeatConfig;
+  cron?: CronJobConfig[];
 }
 
 export interface AppConfig {
@@ -41,6 +56,8 @@ export interface AgentMetadata {
   model?: string;
   enabled: boolean;
   schedules?: AgentSchedule[];
+  heartbeat?: HeartbeatConfig;
+  cron?: CronJobConfig[];
 }
 
 export interface CreateAgentParams {
@@ -53,6 +70,8 @@ export interface CreateAgentParams {
   model?: string;
   enabled?: boolean;
   schedules?: AgentSchedule[];
+  heartbeat?: HeartbeatConfig;
+  cron?: CronJobConfig[];
 }
 
 export interface UpdateAgentParams {
@@ -64,6 +83,8 @@ export interface UpdateAgentParams {
   model?: string;
   enabled?: boolean;
   schedules?: AgentSchedule[];
+  heartbeat?: HeartbeatConfig;
+  cron?: CronJobConfig[];
 }
 
 export type SessionStatus = 'idle' | 'running' | 'error' | 'disposed';

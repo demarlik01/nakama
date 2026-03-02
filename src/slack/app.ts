@@ -91,6 +91,23 @@ export class SlackGateway {
     this.logger.info('File uploaded to Slack', { channelId, filePath, filename });
   }
 
+  /**
+   * Post a text message to a Slack channel.
+   * Used by schedulers (heartbeat, cron) to deliver agent responses.
+   */
+  async postMessage(channelId: string, text: string, threadTs?: string): Promise<void> {
+    const client = this.getClient();
+    const chunks = splitMessage(text, SLACK_MAX_MESSAGE_LENGTH);
+
+    for (const chunk of chunks) {
+      await client.chat.postMessage({
+        channel: channelId,
+        text: chunk,
+        ...(threadTs !== undefined ? { thread_ts: threadTs } : {}),
+      });
+    }
+  }
+
   private getClient(): WebClient {
     if (this.app === undefined) {
       throw new Error('SlackGateway not started');
@@ -257,8 +274,19 @@ export class SlackGateway {
           continue;
         }
 
+        // Check for existing symlink (prevent symlink-based path traversal)
+        try {
+          const stat = await import('fs/promises').then(fs => fs.lstat(destPath));
+          if (stat.isSymbolicLink()) {
+            this.logger.warn('Symlink detected at download path, skipping', { destPath });
+            continue;
+          }
+        } catch {
+          // File doesn't exist yet — safe to write
+        }
+
         const nodeStream = Readable.fromWeb(response.body as import('stream/web').ReadableStream);
-        await pipeline(nodeStream, createWriteStream(destPath));
+        await pipeline(nodeStream, createWriteStream(destPath, { flags: 'wx' }));
 
         downloaded.push(destPath);
         this.logger.info('Downloaded attached file', { name, destPath });

@@ -8,7 +8,9 @@ import type {
   AgentDefinition,
   AgentMetadata,
   AgentRegistryEvents,
+  CronJobConfig,
   CreateAgentParams,
+  HeartbeatConfig,
   UpdateAgentParams,
 } from '../types.js';
 import { createLogger, type Logger } from '../utils/logger.js';
@@ -129,6 +131,8 @@ export class AgentRegistry extends EventEmitter<AgentRegistryEvents> {
         model: params.model,
         enabled: params.enabled ?? true,
         schedules: params.schedules,
+        heartbeat: params.heartbeat,
+        cron: params.cron,
       } satisfies AgentMetadata),
       writeFile(path.join(workspacePath, MEMORY_MD_FILE), '', 'utf8'),
       mkdir(path.join(workspacePath, MEMORY_DIR), { recursive: true }),
@@ -163,6 +167,8 @@ export class AgentRegistry extends EventEmitter<AgentRegistryEvents> {
       model: existing.model,
       enabled: existing.enabled,
       schedules: existing.schedules,
+      heartbeat: existing.heartbeat,
+      cron: existing.cron,
     };
 
     const mergedMetadata: AgentMetadata = {
@@ -174,6 +180,8 @@ export class AgentRegistry extends EventEmitter<AgentRegistryEvents> {
       model: params.model ?? currentMetadata.model,
       enabled: params.enabled ?? currentMetadata.enabled,
       schedules: params.schedules ?? currentMetadata.schedules,
+      heartbeat: params.heartbeat ?? currentMetadata.heartbeat,
+      cron: params.cron ?? currentMetadata.cron,
     };
 
     await writeJson(metadataPath, mergedMetadata);
@@ -346,6 +354,8 @@ export class AgentRegistry extends EventEmitter<AgentRegistryEvents> {
       model: metadata.model,
       enabled: metadata.enabled,
       schedules: metadata.schedules,
+      heartbeat: metadata.heartbeat,
+      cron: metadata.cron,
     };
   }
 }
@@ -401,6 +411,8 @@ async function readJsonIfExists(filePath: string): Promise<AgentMetadata | null>
       model: asOptionalString(parsed.model, 'model'),
       slackBotUserId: asOptionalString(parsed.slackBotUserId, 'slackBotUserId'),
       schedules: asOptionalSchedules(parsed.schedules, 'schedules'),
+      heartbeat: asOptionalHeartbeat(parsed.heartbeat, 'heartbeat'),
+      cron: asOptionalCronJobs(parsed.cron, 'cron'),
     };
 
     return metadata;
@@ -443,6 +455,57 @@ function asOptionalSchedules(value: unknown, label: string): AgentMetadata['sche
       deliverTo: asString(item.deliverTo, `${label}[${index}].deliverTo`),
     };
   });
+}
+
+function asOptionalHeartbeat(value: unknown, label: string): HeartbeatConfig | undefined {
+  if (value === undefined) {
+    return undefined;
+  }
+  if (!isObject(value)) {
+    throw new Error(`${label} must be an object`);
+  }
+  return {
+    enabled: asBoolean(value.enabled, `${label}.enabled`),
+    intervalMin: asNumber(value.intervalMin, `${label}.intervalMin`),
+    quietHours: asNumberTuple(value.quietHours, `${label}.quietHours`),
+  };
+}
+
+function asOptionalCronJobs(value: unknown, label: string): CronJobConfig[] | undefined {
+  if (value === undefined) {
+    return undefined;
+  }
+  if (!Array.isArray(value)) {
+    throw new Error(`${label} must be an array`);
+  }
+  return value.map((item, index) => {
+    if (!isObject(item)) {
+      throw new Error(`${label}[${index}] must be an object`);
+    }
+    return {
+      name: asString(item.name, `${label}[${index}].name`),
+      schedule: asString(item.schedule, `${label}[${index}].schedule`),
+      prompt: asString(item.prompt, `${label}[${index}].prompt`),
+      channel: asString(item.channel, `${label}[${index}].channel`),
+    };
+  });
+}
+
+function asNumber(value: unknown, label: string): number {
+  if (typeof value !== 'number') {
+    throw new Error(`${label} must be a number`);
+  }
+  return value;
+}
+
+function asNumberTuple(value: unknown, label: string): [number, number] {
+  if (!Array.isArray(value) || value.length !== 2) {
+    throw new Error(`${label} must be an array of two numbers`);
+  }
+  if (typeof value[0] !== 'number' || typeof value[1] !== 'number') {
+    throw new Error(`${label} elements must be numbers`);
+  }
+  return [value[0], value[1]];
 }
 
 function asStringArray(value: unknown, label: string): string[] {

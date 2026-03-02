@@ -5,6 +5,8 @@ import { loadConfig } from './config.js';
 import { AgentRegistry } from './core/registry.js';
 import { MessageRouter } from './core/router.js';
 import { SessionManager } from './core/session.js';
+import { CronScheduler } from './core/cron.js';
+import { HeartbeatScheduler } from './core/heartbeat.js';
 import { SlackGateway } from './slack/app.js';
 import { createLogger } from './utils/logger.js';
 
@@ -26,9 +28,45 @@ async function bootstrap(): Promise<void> {
   });
   const slackGateway = new SlackGateway(config, router, sessionManager, logger.child('slack'));
 
+  // Post-to-Slack helper for schedulers (uses Slack Web API directly)
+  const postToSlack = async (channelId: string, text: string, _agentId: string): Promise<void> => {
+    await slackGateway.postMessage(channelId, text);
+  };
+
+  const heartbeatScheduler = new HeartbeatScheduler(
+    sessionManager,
+    postToSlack,
+    logger.child('heartbeat'),
+  );
+  const cronScheduler = new CronScheduler(
+    sessionManager,
+    postToSlack,
+    logger.child('cron'),
+  );
+
   await registry.start();
   await apiServer.start();
   await slackGateway.start();
+
+  // Initialize schedulers for all existing agents
+  for (const agent of registry.getAll()) {
+    heartbeatScheduler.register(agent);
+    cronScheduler.register(agent);
+  }
+
+  // Re-register schedulers on agent changes
+  registry.on('agent:added', (agent) => {
+    heartbeatScheduler.register(agent);
+    cronScheduler.register(agent);
+  });
+  registry.on('agent:updated', (agent) => {
+    heartbeatScheduler.register(agent);
+    cronScheduler.register(agent);
+  });
+  registry.on('agent:removed', (agentId) => {
+    heartbeatScheduler.unregister(agentId);
+    cronScheduler.unregisterAgent(agentId);
+  });
 
   logger.info('Agent for Work started', {
     configPath,
@@ -45,9 +83,12 @@ async function bootstrap(): Promise<void> {
 
     logger.info('Shutdown initiated', { signal });
 
-    // Stop accepting new Slack messages
-    await slackGateway.stop().catch((err: unknown) => {
-      logger.error('Error stopping Slack gateway', {
+    // Stop accepting new requests (Slack + API)
+    await Promise.allSettled([
+      slackGateway.stop(),
+      apiServer.stop(),
+    ]).catch((err: unknown) => {
+      logger.error('Error stopping listeners', {
         error: err instanceof Error ? err.message : String(err),
       });
     });
@@ -96,8 +137,11 @@ async function bootstrap(): Promise<void> {
       });
     }
 
+    // Stop schedulers
+    heartbeatScheduler.stopAll();
+    cronScheduler.stopAll();
+
     await Promise.allSettled([
-      apiServer.stop(),
       registry.stop(),
     ]);
 
