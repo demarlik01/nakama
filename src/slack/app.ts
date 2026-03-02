@@ -1,4 +1,4 @@
-import { App } from '@slack/bolt';
+import { App, LogLevel } from "@slack/bolt";
 
 import type { AppConfig, SlackMessageEvent } from '../types.js';
 import { createLogger, type Logger } from '../utils/logger.js';
@@ -31,6 +31,7 @@ export class SlackGateway {
       token: this.config.slack.botToken,
       appToken: this.config.slack.appToken,
       socketMode: true,
+      logLevel: LogLevel.DEBUG,
     });
 
     this.registerEventHandlers(this.app);
