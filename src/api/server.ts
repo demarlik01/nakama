@@ -11,6 +11,7 @@ import type { SessionManager } from '../core/session.js';
 import type { UsageTracker } from '../core/usage.js';
 import { createLogger, type Logger } from '../utils/logger.js';
 import { createAgentsRouter } from './routes/agents.js';
+import { SSEManager } from './sse.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -26,12 +27,14 @@ export class ApiServer {
   private readonly app: Express;
   private server?: Server;
   private readonly logger: Logger;
+  private readonly sseManager: SSEManager;
 
   constructor(
     private readonly config: AppConfig,
     private readonly deps: ApiServerDependencies,
   ) {
     this.logger = deps.logger ?? createLogger('ApiServer');
+    this.sseManager = new SSEManager(this.logger.child('SSE'));
     this.app = express();
     this.configureMiddleware();
     this.configureRoutes();
@@ -50,6 +53,7 @@ export class ApiServer {
     await new Promise<void>((resolve, reject) => {
       const server = this.app.listen(this.config.api.port, () => {
         this.server = server;
+        this.sseManager.start();
         this.logger.info('API server listening', { port: this.config.api.port });
         resolve();
       });
@@ -73,8 +77,13 @@ export class ApiServer {
       });
     });
 
+    this.sseManager.stop();
     this.server = undefined;
     this.logger.info('API server stopped');
+  }
+
+  getSSEManager(): SSEManager {
+    return this.sseManager;
   }
 
   getApp(): Express {
@@ -126,6 +135,17 @@ export class ApiServer {
           },
         },
       });
+    });
+
+    // --- SSE endpoint ---
+    this.app.get('/api/events', (req, res) => {
+      this.sseManager.handleConnection(req, res);
+    });
+
+    // --- Sessions endpoint ---
+    this.app.get('/api/sessions', (_req, res) => {
+      const sessions = this.deps.sessionManager.getAllSessions();
+      res.json(sessions);
     });
 
     this.app.use(

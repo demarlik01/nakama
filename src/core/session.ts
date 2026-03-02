@@ -19,6 +19,7 @@ import { createLogger, type Logger } from '../utils/logger.js';
 import { buildSystemPrompt } from './memory.js';
 import type { AgentRegistry } from './registry.js';
 import type { UsageTracker } from './usage.js';
+import type { SSEManager } from '../api/sse.js';
 
 interface QueuedMessage {
   message: string;
@@ -38,12 +39,18 @@ interface SessionRuntime {
 export class SessionManager {
   private readonly sessions = new Map<string, SessionRuntime>();
 
+  private sseManager?: SSEManager;
+
   constructor(
     private readonly registry: AgentRegistry,
     private readonly config: AppConfig,
     private readonly logger: Logger = createLogger('SessionManager'),
     private readonly usageTracker?: UsageTracker,
   ) {}
+
+  setSSEManager(sse: SSEManager): void {
+    this.sseManager = sse;
+  }
 
   async handleMessage(
     agentId: string,
@@ -60,6 +67,12 @@ export class SessionManager {
     if (runtime.queue.length >= this.config.session.maxQueueSize) {
       return 'Agent is currently busy. Please try again in a moment.';
     }
+
+    this.sseManager?.emit('session:message', {
+      agentId,
+      role: 'user',
+      preview: message.slice(0, 200),
+    });
 
     return new Promise<string>((resolve, reject) => {
       runtime.queue.push({ message, context, resolve, reject });
@@ -106,6 +119,9 @@ export class SessionManager {
 
     this.sessions.delete(agentId);
 
+    this.sseManager?.emit('session:end', { agentId });
+    this.sseManager?.emit('agent:status', { agentId, status: 'disposed' });
+
     this.logger.info('Session disposed', { agentId });
   }
 
@@ -138,6 +154,16 @@ export class SessionManager {
 
     this.sessions.set(agent.id, runtime);
     this.touchIdleTimer(agent.id, runtime);
+
+    this.sseManager?.emit('session:start', {
+      agentId: agent.id,
+      threadTs: context.slackThreadTs,
+    });
+    this.sseManager?.emit('agent:status', {
+      agentId: agent.id,
+      status: 'idle',
+    });
+
     return runtime;
   }
 
@@ -180,16 +206,39 @@ export class SessionManager {
       runtime.state.status = 'running';
       runtime.state.lastActivityAt = new Date();
 
+      this.sseManager?.emit('agent:status', {
+        agentId: agent.id,
+        status: 'running',
+      });
+
       try {
         const response = await this.runAgentTurn(agent, item.message, item.context, runtime);
         runtime.state.status = 'idle';
         runtime.state.error = undefined;
         runtime.state.lastActivityAt = new Date();
+
+        this.sseManager?.emit('agent:status', {
+          agentId: agent.id,
+          status: 'idle',
+        });
+        this.sseManager?.emit('session:message', {
+          agentId: agent.id,
+          role: 'assistant',
+          preview: typeof response === 'string' ? response.slice(0, 200) : '',
+        });
+
         item.resolve(response);
       } catch (error) {
         runtime.state.status = 'error';
         runtime.state.error = error instanceof Error ? error.message : String(error);
         runtime.state.lastActivityAt = new Date();
+
+        this.sseManager?.emit('agent:status', {
+          agentId: agent.id,
+          status: 'error',
+          error: runtime.state.error,
+        });
+
         item.reject(error);
       }
     }

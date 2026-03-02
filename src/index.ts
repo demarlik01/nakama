@@ -49,6 +49,9 @@ async function bootstrap(): Promise<void> {
     logger.child('cron'),
   );
 
+  // Wire SSE manager to session manager
+  sessionManager.setSSEManager(apiServer.getSSEManager());
+
   await registry.start();
   await apiServer.start();
   await slackGateway.start();
