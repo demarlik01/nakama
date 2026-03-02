@@ -9,6 +9,8 @@ export interface Agent {
   cron?: { schedule: string; prompt: string }[];
   status: "idle" | "running" | "disabled";
   enabled: boolean;
+  limits?: { maxConcurrentSessions?: number; dailyTokenLimit?: number; maxMessageLength?: number };
+  reactionTriggers?: string[];
 }
 
 export interface CreateAgentInput {

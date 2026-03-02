@@ -189,7 +189,22 @@ export class ApiServer {
         return;
       }
       const usage = this.deps.usageTracker.getUsage(req.params.id, period as 'day' | 'week' | 'month');
-      res.json({ usage });
+
+      // Include limit utilization if limits are configured
+      const limits = agent.limits;
+      let utilization: Record<string, unknown> | undefined;
+      if (limits?.dailyTokenLimit) {
+        const todayUsage = this.deps.usageTracker.getUsage(req.params.id, 'day');
+        const today = todayUsage[todayUsage.length - 1];
+        const todayTokens = today ? today.totalTokens : 0;
+        utilization = {
+          dailyTokens: todayTokens,
+          dailyTokenLimit: limits.dailyTokenLimit,
+          dailyUtilizationPct: Math.round((todayTokens / limits.dailyTokenLimit) * 100),
+        };
+      }
+
+      res.json({ usage, limits, utilization });
     });
 
     this.app.get('/api/usage/summary', (_req, res) => {

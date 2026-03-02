@@ -9,6 +9,8 @@ import { join, basename } from 'node:path';
 import type { AppConfig, SlackMessageEvent } from '../types.js';
 import { createLogger, type Logger } from '../utils/logger.js';
 import type { MessageRouter } from '../core/router.js';
+import { markdownToBlocks, markdownToPlainText, splitBlocksForSlack } from './block-kit.js';
+
 import type { SessionManager } from '../core/session.js';
 
 interface SayPayload {
@@ -97,14 +99,31 @@ export class SlackGateway {
    */
   async postMessage(channelId: string, text: string, threadTs?: string): Promise<void> {
     const client = this.getClient();
-    const chunks = splitMessage(text, SLACK_MAX_MESSAGE_LENGTH);
 
-    for (const chunk of chunks) {
-      await client.chat.postMessage({
-        channel: channelId,
-        text: chunk,
-        ...(threadTs !== undefined ? { thread_ts: threadTs } : {}),
-      });
+    try {
+      const blocks = markdownToBlocks(text);
+      const blockChunks = splitBlocksForSlack(blocks);
+      const plainFallback = markdownToPlainText(text);
+      const textChunks = splitMessage(plainFallback, SLACK_MAX_MESSAGE_LENGTH);
+
+      for (let i = 0; i < blockChunks.length; i++) {
+        await client.chat.postMessage({
+          channel: channelId,
+          text: textChunks[i] ?? plainFallback.slice(0, SLACK_MAX_MESSAGE_LENGTH),
+          blocks: blockChunks[i] as any[],
+          ...(threadTs !== undefined ? { thread_ts: threadTs } : {}),
+        });
+      }
+    } catch {
+      // Fallback to plain text
+      const chunks = splitMessage(text, SLACK_MAX_MESSAGE_LENGTH);
+      for (const chunk of chunks) {
+        await client.chat.postMessage({
+          channel: channelId,
+          text: chunk,
+          ...(threadTs !== undefined ? { thread_ts: threadTs } : {}),
+        });
+      }
     }
   }
 
@@ -122,6 +141,13 @@ export class SlackGateway {
         say as SayLike,
         client,
         'app_mention',
+      );
+    });
+
+    app.event('reaction_added', async ({ event, client }) => {
+      await this.handleReactionAdded(
+        event as unknown as Record<string, unknown>,
+        client,
       );
     });
 
@@ -298,14 +324,121 @@ export class SlackGateway {
     return downloaded;
   }
 
-  private async replyToSlack(say: SayLike, text: string, threadTs?: string): Promise<void> {
-    const chunks = splitMessage(text, SLACK_MAX_MESSAGE_LENGTH);
+  /**
+   * Handle reaction_added events.
+   * If the reaction matches an agent's reactionTriggers, fetch the message
+   * and route it to the agent for processing.
+   */
+  private async handleReactionAdded(
+    rawEvent: Record<string, unknown>,
+    client: WebClient,
+  ): Promise<void> {
+    const reaction = asOptionalString(rawEvent.reaction);
+    const userId = asOptionalString(rawEvent.user);
+    const itemUser = asOptionalString(rawEvent.item_user);
+    const item = rawEvent.item as Record<string, unknown> | undefined;
 
-    for (const chunk of chunks) {
-      if (threadTs !== undefined) {
-        await say({ text: chunk, thread_ts: threadTs });
-      } else {
-        await say(chunk);
+    if (!reaction || !item || !userId) return;
+
+    const channel = asOptionalString(item.channel);
+    const messageTs = asOptionalString(item.ts);
+    if (!channel || !messageTs) return;
+
+    // Find agents that have this reaction as a trigger
+    const agents = this.router.getAllAgents?.();
+    if (!agents) return;
+
+    for (const agent of agents) {
+      if (!agent.reactionTriggers?.includes(reaction)) continue;
+
+      // Fetch the original message
+      try {
+        const result = await client.conversations.history({
+          channel,
+          latest: messageTs,
+          inclusive: true,
+          limit: 1,
+        });
+
+        const originalMessage = result.messages?.[0];
+        if (!originalMessage || typeof originalMessage.text !== 'string') continue;
+
+        this.logger.info('Reaction trigger matched', {
+          agentId: agent.id,
+          reaction,
+          channel,
+        });
+
+        // Add eyes reaction to acknowledge
+        await addReaction(client, channel, messageTs, 'eyes').catch(() => {});
+
+        const response = await this.sessionManager.handleMessage(
+          agent.id,
+          `[Triggered by :${reaction}: reaction on message]
+
+${originalMessage.text}`,
+          {
+            slackChannelId: channel,
+            slackThreadTs: messageTs,
+            slackUserId: userId,
+          },
+        );
+
+        // Post response in thread
+        const blocks = markdownToBlocks(response);
+        const blockChunks = splitBlocksForSlack(blocks);
+        const plainFallback = markdownToPlainText(response);
+        const textChunks = splitMessage(plainFallback, SLACK_MAX_MESSAGE_LENGTH);
+
+        for (let i = 0; i < blockChunks.length; i++) {
+          await client.chat.postMessage({
+            channel,
+            text: textChunks[i] ?? plainFallback.slice(0, SLACK_MAX_MESSAGE_LENGTH),
+            blocks: blockChunks[i] as any[],
+            thread_ts: messageTs,
+          });
+        }
+
+        await removeReaction(client, channel, messageTs, 'eyes').catch(() => {});
+        await addReaction(client, channel, messageTs, 'white_check_mark').catch(() => {});
+      } catch (error) {
+        this.logger.error('Error handling reaction trigger', {
+          agentId: agent.id,
+          error: error instanceof Error ? error.message : String(error),
+        });
+        await removeReaction(client, channel, messageTs, 'eyes').catch(() => {});
+        await addReaction(client, channel, messageTs, 'x').catch(() => {});
+      }
+    }
+  }
+
+  private async replyToSlack(say: SayLike, text: string, threadTs?: string): Promise<void> {
+    // Try Block Kit formatting, fall back to plain text
+    try {
+      const blocks = markdownToBlocks(text);
+      const blockChunks = splitBlocksForSlack(blocks);
+      const plainFallback = markdownToPlainText(text);
+      const textChunks = splitMessage(plainFallback, SLACK_MAX_MESSAGE_LENGTH);
+
+      for (let i = 0; i < blockChunks.length; i++) {
+        const payload: Record<string, unknown> = {
+          text: textChunks[i] ?? plainFallback.slice(0, SLACK_MAX_MESSAGE_LENGTH),
+          blocks: blockChunks[i],
+        };
+        if (threadTs !== undefined) {
+          payload.thread_ts = threadTs;
+        }
+        await say(payload as unknown as SayPayload);
+      }
+    } catch {
+      // Fallback to plain text
+      const chunks = splitMessage(text, SLACK_MAX_MESSAGE_LENGTH);
+      for (const chunk of chunks) {
+        if (threadTs !== undefined) {
+          await say({ text: chunk, thread_ts: threadTs });
+        } else {
+          await say(chunk);
+        }
       }
     }
   }

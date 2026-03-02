@@ -1,4 +1,4 @@
-import type { MessageRouteResult, SlackMessageEvent } from '../types.js';
+import type { AgentDefinition, MessageRouteResult, SlackMessageEvent } from '../types.js';
 import { createLogger, type Logger } from '../utils/logger.js';
 import type { AgentRegistry } from './registry.js';
 import type { SessionManager } from './session.js';
@@ -60,5 +60,12 @@ export class MessageRouter {
     });
 
     return null;
+  }
+
+  /**
+   * Return all registered agents. Used by reaction_added handler.
+   */
+  getAllAgents(): AgentDefinition[] {
+    return this.registry.getAll();
   }
 }

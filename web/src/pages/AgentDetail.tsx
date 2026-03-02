@@ -195,6 +195,65 @@ export function AgentDetail() {
               />
             </div>
           </div>
+
+            {/* Resource Limits */}
+            <div className="space-y-6 pt-4 border-t">
+              <div className="space-y-4">
+                <h3 className="text-sm font-medium leading-none">Resource Limits</h3>
+                <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
+                  <div className="space-y-2">
+                    <Label htmlFor="maxConcurrentSessions">Max Concurrent Sessions</Label>
+                    <Input
+                      id="maxConcurrentSessions"
+                      type="number"
+                      value={form.limits?.maxConcurrentSessions ?? ""}
+                      onChange={(e) => setForm({
+                        ...form,
+                        limits: { ...form.limits, maxConcurrentSessions: Number(e.target.value) }
+                      })}
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="dailyTokenLimit">Daily Token Limit</Label>
+                    <Input
+                      id="dailyTokenLimit"
+                      type="number"
+                      value={form.limits?.dailyTokenLimit ?? ""}
+                      onChange={(e) => setForm({
+                        ...form,
+                        limits: { ...form.limits, dailyTokenLimit: Number(e.target.value) }
+                      })}
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="maxMessageLength">Max Message Length</Label>
+                    <Input
+                      id="maxMessageLength"
+                      type="number"
+                      value={form.limits?.maxMessageLength ?? ""}
+                      onChange={(e) => setForm({
+                        ...form,
+                        limits: { ...form.limits, maxMessageLength: Number(e.target.value) }
+                      })}
+                    />
+                  </div>
+                </div>
+              </div>
+
+              <div className="space-y-2">
+                <h3 className="text-sm font-medium leading-none">Reaction Triggers</h3>
+                <Label htmlFor="reactionTriggers">Comma-separated emoji names</Label>
+                <Input
+                  id="reactionTriggers"
+                  placeholder="robot_face, eyes"
+                  value={form.reactionTriggers?.join(", ") ?? ""}
+                  onChange={(e) => setForm({
+                    ...form,
+                    reactionTriggers: e.target.value.split(",").map((s) => s.trim()).filter(Boolean)
+                  })}
+                />
+              </div>
+            </div>
           <Button onClick={handleSaveConfig}>Save Config</Button>
         </TabsContent>
 

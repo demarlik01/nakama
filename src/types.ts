@@ -19,6 +19,12 @@ export interface CronJobConfig {
   channel: string;
 }
 
+export interface LimitsConfig {
+  maxConcurrentSessions?: number;
+  dailyTokenLimit?: number;
+  maxMessageLength?: number;
+}
+
 export interface AgentDefinition {
   id: string;
   displayName: string;
@@ -32,6 +38,8 @@ export interface AgentDefinition {
   schedules?: AgentSchedule[];
   heartbeat?: HeartbeatConfig;
   cron?: CronJobConfig[];
+  limits?: LimitsConfig;
+  reactionTriggers?: string[];
 }
 
 export interface AppConfig {
@@ -58,6 +66,8 @@ export interface AgentMetadata {
   schedules?: AgentSchedule[];
   heartbeat?: HeartbeatConfig;
   cron?: CronJobConfig[];
+  limits?: LimitsConfig;
+  reactionTriggers?: string[];
 }
 
 export interface CreateAgentParams {
@@ -72,6 +82,8 @@ export interface CreateAgentParams {
   schedules?: AgentSchedule[];
   heartbeat?: HeartbeatConfig;
   cron?: CronJobConfig[];
+  limits?: LimitsConfig;
+  reactionTriggers?: string[];
 }
 
 export interface UpdateAgentParams {
@@ -85,6 +97,8 @@ export interface UpdateAgentParams {
   schedules?: AgentSchedule[];
   heartbeat?: HeartbeatConfig;
   cron?: CronJobConfig[];
+  limits?: LimitsConfig;
+  reactionTriggers?: string[];
 }
 
 export type SessionStatus = 'idle' | 'running' | 'error' | 'disposed';

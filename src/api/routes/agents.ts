@@ -247,6 +247,22 @@ function asUpdateAgentParams(value: unknown): UpdateAgentParams {
     payload.schedules = asAgentSchedules(body.schedules, 'schedules');
   }
 
+  if ('limits' in body) {
+    const limits = body.limits;
+    if (limits !== undefined && limits !== null) {
+      const l = asObject(limits, 'limits');
+      payload.limits = {
+        maxConcurrentSessions: l.maxConcurrentSessions !== undefined ? Number(l.maxConcurrentSessions) : undefined,
+        dailyTokenLimit: l.dailyTokenLimit !== undefined ? Number(l.dailyTokenLimit) : undefined,
+        maxMessageLength: l.maxMessageLength !== undefined ? Number(l.maxMessageLength) : undefined,
+      };
+    }
+  }
+
+  if ('reactionTriggers' in body) {
+    payload.reactionTriggers = asStringArray(body.reactionTriggers, 'reactionTriggers');
+  }
+
   return payload;
 }
 
