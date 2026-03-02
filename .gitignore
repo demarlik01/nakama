@@ -2,3 +2,8 @@ node_modules/
 dist/
 config.yaml
 .env
+
+# Usage DB
+usage.db
+usage.db-shm
+usage.db-wal
