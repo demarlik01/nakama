@@ -49,7 +49,7 @@ async function api<T>(path: string, init?: RequestInit): Promise<T> {
   return res.json();
 }
 
-export const fetchAgents = () => api<Agent[]>("/api/agents");
+export const fetchAgents = () => api<{agents: Agent[]}>("/api/agents").then(r => r.agents);
 export const fetchAgent = (id: string) => api<Agent>(`/api/agents/${id}`);
 export const createAgent = (data: CreateAgentInput) =>
   api<Agent>("/api/agents", { method: "POST", body: JSON.stringify(data) });

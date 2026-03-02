@@ -1,5 +1,6 @@
 import type { Server } from 'node:http';
 import { readFile } from 'node:fs/promises';
+import { statSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -108,7 +109,14 @@ export class ApiServer {
 
   private configureRoutes(): void {
     // --- Static file serving for Web UI ---
-    const webDir = path.resolve(__dirname, '..', 'web');
+    // In dev (tsx): __dirname = src/api, in prod: dist/api
+    const candidates = [
+      path.resolve(__dirname, '..', 'web'),
+      path.resolve(__dirname, '..', '..', 'dist', 'web'),
+    ];
+    const webDir = candidates.find(d => {
+      try { statSync(path.join(d, 'index.html')); return true; } catch { return false; }
+    }) ?? candidates[0]!;
     this.app.use(express.static(webDir));
 
     this.app.get('/api/health', (_req, res) => {
