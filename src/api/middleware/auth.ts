@@ -1,3 +1,4 @@
+import { timingSafeEqual } from 'node:crypto';
 import type { Request, Response, NextFunction } from 'express';
 import type { AppConfig } from '../../types.js';
 
@@ -32,7 +33,9 @@ export function createBasicAuthMiddleware(config: AppConfig) {
     }
 
     const provided = authHeader.slice(6);
-    if (provided !== expectedCredentials) {
+    const a = Buffer.from(provided);
+    const b = Buffer.from(expectedCredentials);
+    if (a.length !== b.length || !timingSafeEqual(a, b)) {
       res.status(401).set('WWW-Authenticate', 'Basic realm="agent-for-work"').json({ error: 'Invalid credentials' });
       return;
     }
