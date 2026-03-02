@@ -18,6 +18,7 @@ import type {
 import { createLogger, type Logger } from '../utils/logger.js';
 import { buildSystemPrompt } from './memory.js';
 import type { AgentRegistry } from './registry.js';
+import type { UsageTracker } from './usage.js';
 
 interface QueuedMessage {
   message: string;
@@ -41,6 +42,7 @@ export class SessionManager {
     private readonly registry: AgentRegistry,
     private readonly config: AppConfig,
     private readonly logger: Logger = createLogger('SessionManager'),
+    private readonly usageTracker?: UsageTracker,
   ) {}
 
   async handleMessage(
@@ -231,6 +233,33 @@ export class SessionManager {
     return session;
   }
 
+  private recordUsageFromMessages(agent: AgentDefinition, messages: readonly unknown[]): void {
+    if (!this.usageTracker) return;
+
+    // Walk backwards to find assistant messages from the latest turn
+    for (let i = messages.length - 1; i >= 0; i--) {
+      const msg = messages[i] as Record<string, unknown>;
+      if (msg.role !== 'assistant') break;
+      const usage = msg.usage as { input?: number; output?: number; totalTokens?: number } | undefined;
+      if (usage && (usage.input || usage.output)) {
+        try {
+          this.usageTracker.record({
+            agentId: agent.id,
+            timestamp: Date.now(),
+            inputTokens: usage.input ?? 0,
+            outputTokens: usage.output ?? 0,
+            model: (msg.model as string) ?? agent.model ?? 'unknown',
+          });
+        } catch (err) {
+          this.logger.error('Failed to record usage', {
+            agentId: agent.id,
+            error: err instanceof Error ? err.message : String(err),
+          });
+        }
+      }
+    }
+  }
+
   private async runAgentTurn(
     agent: AgentDefinition,
     message: string,
@@ -247,6 +276,9 @@ export class SessionManager {
     });
 
     await session.prompt(message);
+
+    // Record usage from all new assistant messages
+    this.recordUsageFromMessages(agent, session.state.messages as unknown as readonly unknown[]);
 
     const messages = session.state.messages;
     const lastMessage = messages[messages.length - 1];

@@ -9,6 +9,7 @@ import { CronScheduler } from './core/cron.js';
 import { HeartbeatScheduler } from './core/heartbeat.js';
 import { SlackGateway } from './slack/app.js';
 import { createLogger } from './utils/logger.js';
+import { UsageTracker } from './core/usage.js';
 
 async function bootstrap(): Promise<void> {
   const logger = createLogger('Bootstrap');
@@ -18,9 +19,12 @@ async function bootstrap(): Promise<void> {
   const workspacesRoot = path.resolve(process.cwd(), config.workspaces.root);
 
   const registry = new AgentRegistry(workspacesRoot, logger.child('registry'));
-  const sessionManager = new SessionManager(registry, config, logger.child('session'));
+  const dataDir = path.resolve(workspacesRoot, '..');
+  const usageTracker = new UsageTracker(dataDir, logger.child('usage'));
+  const sessionManager = new SessionManager(registry, config, logger.child('session'), usageTracker);
   const router = new MessageRouter(registry, sessionManager, logger.child('router'));
   const apiServer = new ApiServer(config, {
+    usageTracker,
     registry,
     sessionManager,
     slackConnected: () => slackGateway.isConnected(),
@@ -137,6 +141,7 @@ async function bootstrap(): Promise<void> {
     // Stop schedulers
     heartbeatScheduler.stopAll();
     cronScheduler.stopAll();
+    usageTracker.close();
 
     await Promise.allSettled([
       registry.stop(),

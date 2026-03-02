@@ -172,10 +172,7 @@ export function createAgentsRouter(deps: AgentsRouterDependencies): Router {
     res.json({ sessions });
   });
 
-  router.get('/:id/usage', (req, res) => {
-    logger.info('Stub usage endpoint called', { agentId: req.params.id });
-    res.status(501).json({ error: 'Not implemented yet' });
-  });
+  // Usage endpoint is in server.ts (backed by UsageTracker)
 
   router.post('/:id/message', async (req, res) => {
     try {
