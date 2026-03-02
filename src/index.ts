@@ -18,7 +18,7 @@ async function bootstrap(): Promise<void> {
   const configPath = process.env.CONFIG_PATH ?? 'config.yaml';
 
   const config = await loadConfig(configPath);
-  const expandHome = (p: string) => p.startsWith('~') ? p.replace('~', os.homedir()) : p;
+  const expandHome = (p: string) => p.replace(/^~(?=\/|$)/, os.homedir());
   const workspacesRoot = path.resolve(process.cwd(), expandHome(config.workspaces.root));
 
   const registry = new AgentRegistry(workspacesRoot, logger.child('registry'));

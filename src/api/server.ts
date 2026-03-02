@@ -1,6 +1,6 @@
 import type { Server } from 'node:http';
 import { readFile } from 'node:fs/promises';
-import { statSync } from 'node:fs';
+import { existsSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -115,8 +115,8 @@ export class ApiServer {
       path.resolve(__dirname, '..', '..', 'dist', 'web'),
     ];
     const webDir = candidates.find(d => {
-      try { statSync(path.join(d, 'index.html')); return true; } catch { return false; }
-    }) ?? candidates[0]!;
+      return existsSync(path.join(d, 'index.html'))
+    }) ?? candidates[0] ?? path.resolve(__dirname, '..', 'web');
     this.app.use(express.static(webDir));
 
     this.app.get('/api/health', (_req, res) => {

@@ -60,7 +60,7 @@ export function validateAppConfig(config: unknown): AppConfig {
   const server = requireObject(root.server, 'server');
   const slack = requireObject(root.slack, 'slack');
   const llm = requireObject(root.llm, 'llm');
-  const workspaces = (root.workspaces ?? {}) as Record<string, unknown>;
+  const workspaces = (typeof root.workspaces === 'object' && root.workspaces !== null ? root.workspaces : {}) as Record<string, unknown>;
   const api = requireObject(root.api, 'api');
   const session = requireObject(root.session, 'session');
 
@@ -78,8 +78,8 @@ export function validateAppConfig(config: unknown): AppConfig {
       auth: requireString(llm.auth, 'llm.auth'),
     },
     workspaces: {
-      root: (workspaces.root as string | undefined) ?? path.join(os.homedir(), '.agent-for-work', 'workspaces'),
-      shared: (workspaces.shared as string | undefined) ?? path.join(os.homedir(), '.agent-for-work', 'shared'),
+      root: typeof workspaces.root === 'string' ? workspaces.root : path.join(os.homedir(), '.agent-for-work', 'workspaces'),
+      shared: typeof workspaces.shared === 'string' ? workspaces.shared : path.join(os.homedir(), '.agent-for-work', 'shared'),
     },
     api: {
       enabled: requireBoolean(api.enabled, 'api.enabled'),
