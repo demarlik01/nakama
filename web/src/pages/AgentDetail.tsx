@@ -26,6 +26,7 @@ import {
   DialogTrigger,
 } from "@/components/ui/dialog";
 import { toast } from "sonner";
+import { useEventSource, type SSEMessage } from "@/hooks/useEventSource";
 
 export function AgentDetail() {
   const { id } = useParams<{ id: string }>();
@@ -35,6 +36,7 @@ export function AgentDetail() {
   const [mdContent, setMdContent] = useState("");
   const [usage, setUsage] = useState<DailyUsage[]>([]);
   const [loading, setLoading] = useState(true);
+  const [logs, setLogs] = useState<Array<{ message: string; timestamp: string; level?: string }>>([]);
 
   const load = useCallback(async () => {
     if (!id) return;
@@ -57,6 +59,28 @@ export function AgentDetail() {
   }, [id]);
 
   useEffect(() => { load(); }, [load]);
+
+  const handleSSE = (event: SSEMessage) => {
+    if (event.type === "log" && (event.data.agentId === id || !event.data.agentId)) {
+      setLogs((prev) => [
+        ...prev.slice(-499),
+        {
+          message: (event.data.message as string) ?? JSON.stringify(event.data),
+          timestamp: (event.data.timestamp as string) ?? new Date().toISOString(),
+          level: event.data.level as string | undefined,
+        },
+      ]);
+    }
+    if (event.type === "agent:status" && event.data.agentId === id) {
+      setAgent((prev) => prev ? { ...prev, status: event.data.status as Agent["status"] } : prev);
+    }
+  };
+
+  useEventSource({
+    url: "/api/events?type=logs",
+    onMessage: handleSSE,
+    enabled: !!id,
+  });
 
   const handleSaveConfig = async () => {
     if (!id) return;
@@ -120,6 +144,7 @@ export function AgentDetail() {
           <TabsTrigger value="config">Config</TabsTrigger>
           <TabsTrigger value="agents-md">AGENTS.md</TabsTrigger>
           <TabsTrigger value="usage">Usage</TabsTrigger>
+          <TabsTrigger value="logs">Logs</TabsTrigger>
         </TabsList>
 
         <TabsContent value="config" className="space-y-4 mt-4">
@@ -218,6 +243,27 @@ export function AgentDetail() {
               </div>
             </div>
           )}
+        </TabsContent>
+
+        <TabsContent value="logs" className="mt-4">
+          <div className="bg-zinc-950 text-zinc-200 rounded-lg p-4 font-mono text-xs max-h-[500px] overflow-y-auto">
+            {logs.length === 0 ? (
+              <p className="text-zinc-500">Waiting for log events...</p>
+            ) : (
+              logs.map((log, i) => (
+                <div key={i} className="py-0.5">
+                  <span className="text-zinc-500">{new Date(log.timestamp).toLocaleTimeString()} </span>
+                  <span className={
+                    log.level === "error" ? "text-red-400" :
+                    log.level === "warn" ? "text-yellow-400" :
+                    "text-zinc-300"
+                  }>
+                    {log.message}
+                  </span>
+                </div>
+              ))
+            )}
+          </div>
         </TabsContent>
       </Tabs>
 

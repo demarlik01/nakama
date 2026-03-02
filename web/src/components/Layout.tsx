@@ -1,10 +1,11 @@
 import { Link, Outlet, useLocation } from "react-router-dom";
 import { cn } from "@/lib/utils";
 import { Separator } from "@/components/ui/separator";
-import { LayoutDashboard, PlusCircle, Activity } from "lucide-react";
+import { LayoutDashboard, PlusCircle, Activity, Radio } from "lucide-react";
 
 const navItems = [
   { to: "/", label: "Dashboard", icon: LayoutDashboard },
+  { to: "/sessions", label: "Sessions", icon: Radio },
   { to: "/agents/new", label: "New Agent", icon: PlusCircle },
   { to: "/health", label: "Health", icon: Activity },
 ];

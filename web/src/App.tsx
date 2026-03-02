@@ -5,6 +5,7 @@ import { Dashboard } from "@/pages/Dashboard";
 import { AgentDetail } from "@/pages/AgentDetail";
 import { NewAgent } from "@/pages/NewAgent";
 import { Health } from "@/pages/Health";
+import { Sessions } from "@/pages/Sessions";
 
 export default function App() {
   return (
@@ -12,6 +13,7 @@ export default function App() {
       <Routes>
         <Route element={<Layout />}>
           <Route path="/" element={<Dashboard />} />
+          <Route path="/sessions" element={<Sessions />} />
           <Route path="/agents/new" element={<NewAgent />} />
           <Route path="/agents/:id" element={<AgentDetail />} />
           <Route path="/health" element={<Health />} />

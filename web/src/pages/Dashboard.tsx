@@ -1,6 +1,7 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, useCallback } from "react";
 import { useNavigate } from "react-router-dom";
 import { type Agent, fetchAgents } from "@/lib/api";
+import { useEventSource, type SSEMessage } from "@/hooks/useEventSource";
 import {
   Card,
   CardHeader,
@@ -9,11 +10,13 @@ import {
   CardContent,
 } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
+import { toast } from "sonner";
 
 const statusVariant: Record<string, "default" | "secondary" | "destructive" | "outline"> = {
   running: "default",
   idle: "secondary",
   disabled: "outline",
+  error: "destructive",
 };
 
 export function Dashboard() {
@@ -27,6 +30,37 @@ export function Dashboard() {
       .catch(console.error)
       .finally(() => setLoading(false));
   }, []);
+
+  const handleSSE = useCallback((event: SSEMessage) => {
+    const { type, data } = event;
+
+    if (type === "agent:status") {
+      const agentId = data.agentId as string;
+      const status = data.status as string;
+      setAgents((prev) =>
+        prev.map((a) =>
+          a.id === agentId ? { ...a, status: status as Agent["status"] } : a
+        )
+      );
+    }
+
+    if (type === "session:start") {
+      toast.info(`Session started: ${data.agentId}`);
+    }
+
+    if (type === "session:end") {
+      toast.info(`Session ended: ${data.agentId}`);
+    }
+
+    if (type === "error") {
+      toast.error(`Error: ${data.error ?? data.message ?? "Unknown error"}`);
+    }
+  }, []);
+
+  useEventSource({
+    url: "/api/events",
+    onMessage: handleSSE,
+  });
 
   if (loading) return <div className="text-muted-foreground">Loading...</div>;
 
