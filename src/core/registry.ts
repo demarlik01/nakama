@@ -27,8 +27,12 @@ const AGENTS_MD_FILE = 'AGENTS.md';
 const AGENT_JSON_FILE = 'agent.json';
 const MEMORY_MD_FILE = 'MEMORY.md';
 const MEMORY_DIR = 'memory';
+const SKILLS_DIR = 'skills';
+const SKILLS_README_FILE = 'README.md';
 const DOCS_DIR = 'docs';
 const ARCHIVE_DIR = '_archived';
+const MIN_CUSTOM_AGENTS_MD_CHARS = 200;
+const MIN_CUSTOM_AGENTS_MD_LINES = 8;
 
 export class AgentRegistry extends EventEmitter<AgentRegistryEvents> {
   private readonly agents = new Map<string, AgentDefinition>();
@@ -147,8 +151,8 @@ export class AgentRegistry extends EventEmitter<AgentRegistryEvents> {
         limits: params.limits,
         reactionTriggers: params.reactionTriggers,
       } satisfies AgentMetadata),
-      writeFile(path.join(workspacePath, MEMORY_MD_FILE), '', 'utf8'),
-      mkdir(path.join(workspacePath, MEMORY_DIR), { recursive: true }),
+      initializeMemoryFiles(workspacePath),
+      initializeSkillsFiles(workspacePath),
       mkdir(path.join(workspacePath, DOCS_DIR), { recursive: true }),
     ]);
 
@@ -482,26 +486,118 @@ function hasErrorCode(error: unknown, code: string): boolean {
 }
 
 function resolveAgentsMdContent(params: CreateAgentParams): string {
-  if (typeof params.agentsMd === 'string' && params.agentsMd.trim() !== '') {
-    return params.agentsMd;
+  const provided = typeof params.agentsMd === 'string' ? params.agentsMd : undefined;
+  if (typeof provided === 'string' && !isVeryShortAgentsMd(provided)) {
+    return provided;
   }
 
+  return buildDefaultAgentsMd(params);
+}
+
+function buildDefaultAgentsMd(params: CreateAgentParams): string {
   const description =
     typeof params.description === 'string' && params.description.trim() !== ''
       ? params.description.trim()
-      : `You are ${params.displayName}.`;
+      : `You are ${params.displayName}, a pragmatic AI software engineer.`;
 
   return [
     `# ${params.displayName}`,
     '',
-    '## Role',
+    '## Persona',
     description,
     '',
-    '## Guidelines',
-    '- Follow AGENTS.md and repository conventions.',
-    '- Ask for clarification when requirements are ambiguous.',
-    '- Keep responses concise and actionable.',
+    '## Boundaries',
+    '- Work only inside this agent workspace and project files.',
+    '- Avoid destructive or irreversible actions unless explicitly requested.',
+    '- Do not expose secrets or private data in code, logs, or summaries.',
+    '- If a task is ambiguous or blocked, ask one focused clarification question.',
+    '',
+    '## When To Speak',
+    '- Share a short update before major edits or long-running commands.',
+    '- Call out assumptions, blockers, or risky tradeoffs as soon as they appear.',
+    '- If confidence is low, pause and ask for confirmation before proceeding.',
+    '',
+    '## Reporting Style',
+    '- Start with outcome first, then list key changes and touched files.',
+    '- Include validation steps run (tests/build) and any failures or skips.',
+    '- Keep responses concise, concrete, and implementation-focused.',
   ].join('\n');
+}
+
+function isVeryShortAgentsMd(content: string | undefined): boolean {
+  if (typeof content !== 'string') {
+    return true;
+  }
+
+  const trimmed = content.trim();
+  if (trimmed.length === 0) {
+    return true;
+  }
+
+  const nonEmptyLines = trimmed
+    .split('\n')
+    .map((line) => line.trim())
+    .filter((line) => line.length > 0);
+
+  return (
+    trimmed.length < MIN_CUSTOM_AGENTS_MD_CHARS &&
+    nonEmptyLines.length < MIN_CUSTOM_AGENTS_MD_LINES
+  );
+}
+
+async function initializeMemoryFiles(workspacePath: string): Promise<void> {
+  const memoryPath = path.join(workspacePath, MEMORY_MD_FILE);
+  const memoryDir = path.join(workspacePath, MEMORY_DIR);
+  const today = formatDate(new Date());
+  const todayMemoryPath = path.join(memoryDir, `${today}.md`);
+
+  await mkdir(memoryDir, { recursive: true });
+  await Promise.all([
+    writeFile(memoryPath, normalizeFile(buildMemoryIndexContent()), 'utf8'),
+    writeFile(todayMemoryPath, normalizeFile(buildDailyMemoryContent(today)), 'utf8'),
+  ]);
+}
+
+async function initializeSkillsFiles(workspacePath: string): Promise<void> {
+  const skillsDir = path.join(workspacePath, SKILLS_DIR);
+  await mkdir(skillsDir, { recursive: true });
+  await writeFile(
+    path.join(skillsDir, SKILLS_README_FILE),
+    normalizeFile(buildSkillsReadmeContent()),
+    'utf8',
+  );
+}
+
+function buildMemoryIndexContent(): string {
+  return [
+    '# MEMORY',
+    '',
+    'Use this file for durable context that should persist across sessions.',
+    '- Keep stable project facts and long-term decisions here.',
+    '- Put day-to-day notes in memory/YYYY-MM-DD.md files.',
+  ].join('\n');
+}
+
+function buildDailyMemoryContent(date: string): string {
+  return [`# ${date}`, '', '## Notes', '-'].join('\n');
+}
+
+function buildSkillsReadmeContent(): string {
+  return [
+    '# Skills',
+    '',
+    'Add custom skills for this agent in this folder.',
+    '- Create one folder per skill (for example: `skills/my-skill/`).',
+    '- Put instructions in `skills/<skill-name>/SKILL.md`.',
+    '- Keep skills focused and reusable.',
+  ].join('\n');
+}
+
+function formatDate(input: Date): string {
+  const year = input.getFullYear();
+  const month = String(input.getMonth() + 1).padStart(2, '0');
+  const day = String(input.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
 }
 
 async function exists(filePath: string): Promise<boolean> {

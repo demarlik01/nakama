@@ -26,8 +26,14 @@ export async function buildSystemPrompt(agent: AgentDefinition): Promise<string>
     'If a task requires files outside your workspace, ask the user for help.',
   ].join('\n');
 
-  const content = parts.filter((part): part is string => Boolean(part)).join('\n\n---\n\n');
-  return workspaceGuard + '\n\n---\n\n' + content;
+  const relevantParts = parts
+    .filter((part): part is string => typeof part === 'string' && part.trim().length > 0)
+    .map((part) => part.trim());
+  if (relevantParts.length === 0) {
+    return workspaceGuard;
+  }
+
+  return workspaceGuard + '\n\n---\n\n' + relevantParts.join('\n\n---\n\n');
 }
 
 export async function readFileIfExists(filePath: string): Promise<string | null> {

@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { mkdtempSync, writeFileSync, mkdirSync, rmSync } from 'fs';
+import { existsSync, mkdtempSync, readFileSync, writeFileSync, mkdirSync, rmSync } from 'fs';
 import { join } from 'path';
 import { tmpdir } from 'os';
 import { AgentRegistry } from '../src/core/registry.js';
@@ -79,4 +79,82 @@ describe('AgentRegistry', () => {
     expect(registry.findByThread('1234567890.123456')?.id).toBe('thread-agent');
     expect(registry.findByThread('unknown-thread')).toBeUndefined();
   });
+
+  it('initializes default files for newly created agents', async () => {
+    registry = new AgentRegistry(tempDir, logger);
+    await registry.start();
+
+    await registry.create({
+      id: 'bootstrap-agent',
+      displayName: 'Bootstrap Agent',
+      agentsMd: '# short',
+      slackChannels: ['C123'],
+      slackUsers: [],
+      model: 'anthropic/claude-sonnet-4-20250514',
+    });
+
+    const workspace = join(tempDir, 'bootstrap-agent');
+    const agentsMd = readFileSync(join(workspace, 'AGENTS.md'), 'utf8');
+    const memoryMd = readFileSync(join(workspace, 'MEMORY.md'), 'utf8');
+    const skillsReadme = readFileSync(join(workspace, 'skills', 'README.md'), 'utf8');
+    const today = formatDate(new Date());
+
+    expect(agentsMd).toContain('## Persona');
+    expect(agentsMd).toContain('## Boundaries');
+    expect(agentsMd).toContain('## When To Speak');
+    expect(agentsMd).toContain('## Reporting Style');
+
+    expect(memoryMd).toContain('# MEMORY');
+    expect(existsSync(join(workspace, 'memory', `${today}.md`))).toBe(true);
+
+    expect(skillsReadme).toContain('# Skills');
+    expect(skillsReadme).toContain('SKILL.md');
+  });
+
+  it('keeps detailed custom AGENTS.md content when provided', async () => {
+    registry = new AgentRegistry(tempDir, logger);
+    await registry.start();
+
+    const customAgentsMd = [
+      '# Custom Agent',
+      '',
+      '## Persona',
+      'You are precise and efficient.',
+      '',
+      '## Boundaries',
+      '- Work only in the project.',
+      '- Never leak secrets.',
+      '',
+      '## When To Speak',
+      '- Ask for clarification when blocked.',
+      '- Share concise status updates.',
+      '',
+      '## Reporting Style',
+      '- Include changed files and test results.',
+      '- Keep details factual.',
+      '',
+      '## Notes',
+      'CUSTOM-MARKER',
+    ].join('\n');
+
+    await registry.create({
+      id: 'custom-agent',
+      displayName: 'Custom Agent',
+      agentsMd: customAgentsMd,
+      slackChannels: ['C123'],
+      slackUsers: [],
+      model: 'anthropic/claude-sonnet-4-20250514',
+    });
+
+    const agentsMd = readFileSync(join(tempDir, 'custom-agent', 'AGENTS.md'), 'utf8');
+    expect(agentsMd).toContain('CUSTOM-MARKER');
+    expect(agentsMd).toContain('## Notes');
+  });
 });
+
+function formatDate(input: Date): string {
+  const year = input.getFullYear();
+  const month = String(input.getMonth() + 1).padStart(2, '0');
+  const day = String(input.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+}
