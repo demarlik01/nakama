@@ -168,6 +168,7 @@ export class ApiServer {
       createAgentsRouter({
         registry: this.deps.registry,
         sessionManager: this.deps.sessionManager,
+        usageTracker: this.deps.usageTracker,
         logger: this.logger.child('agents-routes'),
       }),
     );

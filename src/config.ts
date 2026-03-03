@@ -63,6 +63,11 @@ export function validateAppConfig(config: unknown): AppConfig {
   const workspaces = (typeof root.workspaces === 'object' && root.workspaces !== null ? root.workspaces : {}) as Record<string, unknown>;
   const api = requireObject(root.api, 'api');
   const session = requireObject(root.session, 'session');
+  const configuredSessionTtlDays =
+    session.sessionTTLDays ?? session.ttlDays ?? 30;
+  const sessionTtlLabel = session.sessionTTLDays !== undefined
+    ? 'session.sessionTTLDays'
+    : 'session.ttlDays';
 
   return {
     server: {
@@ -92,7 +97,7 @@ export function validateAppConfig(config: unknown): AppConfig {
         session.autoSummaryOnDispose,
         'session.autoSummaryOnDispose',
       ),
-      ttlDays: requireNonNegativeNumber(session.ttlDays ?? 30, 'session.ttlDays'),
+      ttlDays: requireNonNegativeNumber(configuredSessionTtlDays, sessionTtlLabel),
     },
   };
 }

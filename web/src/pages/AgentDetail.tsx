@@ -1,12 +1,15 @@
-import { useEffect, useState, useCallback, useRef } from "react";
+import { useEffect, useState, useCallback, useMemo, useRef } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import {
   type Agent,
   type AgentSessionDetail,
+  type AgentSessionMessage,
   type AgentSessionSummary,
   type DailyUsage,
+  type SessionUsageSummary,
   fetchAgent,
   fetchAgentSession,
+  fetchAgentSessionUsage,
   fetchAgentSessions,
   updateAgent,
   deleteAgent,
@@ -43,9 +46,11 @@ export function AgentDetail() {
   const [sessions, setSessions] = useState<AgentSessionSummary[]>([]);
   const [selectedSessionId, setSelectedSessionId] = useState<string | null>(null);
   const [selectedSession, setSelectedSession] = useState<AgentSessionDetail | null>(null);
+  const [selectedSessionUsage, setSelectedSessionUsage] = useState<SessionUsageSummary | null>(null);
   const [loadingSession, setLoadingSession] = useState(false);
   const [loading, setLoading] = useState(true);
   const [logs, setLogs] = useState<Array<{ message: string; timestamp: string; level?: string }>>([]);
+  const sessionTimelineRef = useRef<HTMLDivElement | null>(null);
   const sessionRequestSeq = useRef(0);
 
   const load = useCallback(async () => {
@@ -64,6 +69,7 @@ export function AgentDetail() {
       setSessions(persistedSessions);
       setSelectedSessionId(null);
       setSelectedSession(null);
+      setSelectedSessionUsage(null);
       sessionRequestSeq.current += 1;
       setLoadingSession(false);
     } catch (e) {
@@ -148,15 +154,21 @@ export function AgentDetail() {
     sessionRequestSeq.current = requestSeq;
     setSelectedSessionId(sessionId);
     setSelectedSession(null);
+    setSelectedSessionUsage(null);
     setLoadingSession(true);
 
     try {
-      const detail = await fetchAgentSession(id, sessionId);
+      const [detail, usageResponse] = await Promise.all([
+        fetchAgentSession(id, sessionId),
+        fetchAgentSessionUsage(id, sessionId).catch(() => ({ usage: [], summary: undefined })),
+      ]);
       if (sessionRequestSeq.current !== requestSeq) return;
       setSelectedSession(detail);
+      setSelectedSessionUsage(usageResponse.summary ?? null);
     } catch {
       if (sessionRequestSeq.current !== requestSeq) return;
       setSelectedSession(null);
+      setSelectedSessionUsage(null);
       toast.error("Failed to load session history");
     } finally {
       if (sessionRequestSeq.current !== requestSeq) return;
@@ -164,10 +176,44 @@ export function AgentDetail() {
     }
   };
 
-  if (loading) return <div className="text-muted-foreground">Loading...</div>;
-  if (!agent) return <div className="text-destructive">Agent not found</div>;
+  const timestampFormatter = useMemo(
+    () =>
+      new Intl.DateTimeFormat(undefined, {
+        year: "numeric",
+        month: "2-digit",
+        day: "2-digit",
+        hour: "2-digit",
+        minute: "2-digit",
+        second: "2-digit",
+      }),
+    []
+  );
+  const sessionMessages = useMemo(() => {
+    if (!selectedSession) {
+      return [];
+    }
+
+    const parsed = parseMessagesFromJsonl(selectedSession.rawJsonl);
+    return parsed.length > 0 ? parsed : selectedSession.messages;
+  }, [selectedSession]);
+
+  useEffect(() => {
+    if (!selectedSessionId || loadingSession) {
+      return;
+    }
+
+    const timelineEl = sessionTimelineRef.current;
+    if (!timelineEl) {
+      return;
+    }
+
+    timelineEl.scrollTop = timelineEl.scrollHeight;
+  }, [selectedSessionId, loadingSession, sessionMessages.length]);
 
   const maxTokens = Math.max(...usage.map((d) => d.inputTokens + d.outputTokens), 1);
+
+  if (loading) return <div className="text-muted-foreground">Loading...</div>;
+  if (!agent) return <div className="text-destructive">Agent not found</div>;
 
   return (
     <div className="max-w-3xl">
@@ -394,6 +440,14 @@ export function AgentDetail() {
                   <CardTitle className="text-base">
                     {selectedSession ? selectedSession.fileName : "Session timeline"}
                   </CardTitle>
+                  {selectedSessionUsage ? (
+                    <div className="text-xs text-muted-foreground flex flex-wrap items-center gap-3">
+                      <span>Input: {selectedSessionUsage.totalInputTokens.toLocaleString()}</span>
+                      <span>Output: {selectedSessionUsage.totalOutputTokens.toLocaleString()}</span>
+                      <span>Total: {selectedSessionUsage.totalTokens.toLocaleString()}</span>
+                      <span>Records: {selectedSessionUsage.recordCount.toLocaleString()}</span>
+                    </div>
+                  ) : null}
                 </CardHeader>
                 <CardContent>
                   {!selectedSessionId ? (
@@ -404,11 +458,11 @@ export function AgentDetail() {
                     <p className="text-sm text-muted-foreground">Loading session...</p>
                   ) : !selectedSession ? (
                     <p className="text-sm text-muted-foreground">Session not found.</p>
-                  ) : selectedSession.messages.length === 0 ? (
+                  ) : sessionMessages.length === 0 ? (
                     <p className="text-sm text-muted-foreground">No messages in this session.</p>
                   ) : (
-                    <div className="space-y-2 max-h-[460px] overflow-y-auto pr-1">
-                      {selectedSession.messages.map((message, index) => (
+                    <div ref={sessionTimelineRef} className="space-y-2 max-h-[460px] overflow-y-auto pr-1">
+                      {sessionMessages.map((message, index) => (
                         <div
                           key={`${message.timestamp}-${index}`}
                           className={`rounded-lg border p-3 text-sm ${
@@ -420,7 +474,7 @@ export function AgentDetail() {
                           <div className="flex items-center justify-between gap-2 mb-1">
                             <span className="font-medium">{message.role}</span>
                             <span className="text-xs text-muted-foreground">
-                              {new Date(message.timestamp).toLocaleString()}
+                              {formatSessionTimestamp(message.timestamp, timestampFormatter)}
                             </span>
                           </div>
                           <div className="whitespace-pre-wrap break-words">{message.content}</div>
@@ -481,4 +535,112 @@ export function AgentDetail() {
       </div>
     </div>
   );
+}
+
+function parseMessagesFromJsonl(rawJsonl: string): AgentSessionMessage[] {
+  if (rawJsonl.trim() === "") {
+    return [];
+  }
+
+  const messages: AgentSessionMessage[] = [];
+  const lines = rawJsonl.split("\n");
+  let sessionTimestamp = new Date().toISOString();
+
+  for (const line of lines) {
+    const trimmed = line.trim();
+    if (trimmed === "") {
+      continue;
+    }
+
+    let entry: unknown;
+    try {
+      entry = JSON.parse(trimmed);
+    } catch {
+      continue;
+    }
+
+    if (!isRecord(entry)) {
+      continue;
+    }
+
+    if (entry.type === "session") {
+      const parsed = parseIsoTimestamp(entry.timestamp);
+      if (parsed) {
+        sessionTimestamp = parsed;
+      }
+      continue;
+    }
+
+    const message = entry.message;
+    if (entry.type !== "message" || !isRecord(message)) {
+      continue;
+    }
+
+    const role = message.role;
+    if (role !== "user" && role !== "assistant") {
+      continue;
+    }
+
+    messages.push({
+      role,
+      content: extractMessageText(message.content),
+      timestamp:
+        parseIsoTimestamp(message.timestamp) ??
+        parseIsoTimestamp(entry.timestamp) ??
+        sessionTimestamp,
+    });
+  }
+
+  return messages;
+}
+
+function formatSessionTimestamp(timestamp: string, formatter: Intl.DateTimeFormat): string {
+  const parsed = Date.parse(timestamp);
+  if (Number.isNaN(parsed)) {
+    return timestamp;
+  }
+  return formatter.format(new Date(parsed));
+}
+
+function extractMessageText(content: unknown): string {
+  if (typeof content === "string") {
+    return content;
+  }
+
+  if (!Array.isArray(content)) {
+    return "(No text content)";
+  }
+
+  const parts: string[] = [];
+  for (const part of content) {
+    if (!isRecord(part)) {
+      continue;
+    }
+    if (part.type === "text" && typeof part.text === "string") {
+      parts.push(part.text);
+    }
+  }
+
+  return parts.length > 0 ? parts.join("") : "(No text content)";
+}
+
+function parseIsoTimestamp(value: unknown): string | undefined {
+  if (typeof value === "number" && Number.isFinite(value)) {
+    const date = new Date(value);
+    return Number.isNaN(date.getTime()) ? undefined : date.toISOString();
+  }
+
+  if (typeof value === "string") {
+    const parsed = Date.parse(value);
+    if (Number.isNaN(parsed)) {
+      return undefined;
+    }
+    return new Date(parsed).toISOString();
+  }
+
+  return undefined;
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null;
 }

@@ -121,6 +121,7 @@ export interface SessionMessageContext {
 
 export interface SessionState {
   agentId: string;
+  sessionId?: string;
   threadTs?: string;
   status: SessionStatus;
   queueDepth: number;

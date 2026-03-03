@@ -55,7 +55,15 @@ export interface AgentSessionMessage {
 }
 
 export interface AgentSessionDetail extends AgentSessionSummary {
+  rawJsonl: string;
   messages: AgentSessionMessage[];
+}
+
+export interface SessionUsageSummary {
+  totalInputTokens: number;
+  totalOutputTokens: number;
+  totalTokens: number;
+  recordCount: number;
 }
 
 interface AgentEnvelope {
@@ -124,3 +132,11 @@ export const fetchAgentSession = (id: string, sessionId: string) =>
   api<{ session: AgentSessionDetail }>(
     `/api/agents/${id}/sessions/${encodeURIComponent(sessionId)}`
   ).then((r) => r.session);
+export const fetchAgentSessionUsage = (
+  id: string,
+  sessionId: string,
+  period: "day" | "week" | "month" = "day"
+) =>
+  api<{ usage: UsagePeriod[]; summary?: SessionUsageSummary }>(
+    `/api/agents/${id}/sessions/${encodeURIComponent(sessionId)}/usage?period=${period}`
+  );

@@ -1,4 +1,4 @@
-import { mkdir, readFile } from 'node:fs/promises';
+import { mkdir, readFile, realpath } from 'node:fs/promises';
 import path from 'node:path';
 
 import { SessionManager as PiSessionManager } from '@mariozechner/pi-coding-agent';
@@ -25,6 +25,7 @@ export interface PersistedSessionMessage {
 }
 
 export interface PersistedSessionDetail extends PersistedSessionSummary {
+  rawJsonl: string;
   messages: PersistedSessionMessage[];
 }
 
@@ -75,8 +76,16 @@ export async function listPersistedSessions(
         return undefined;
       }
 
-      const sessionId = normalizeSessionId(fileName);
+      const sessionId =
+        (typeof session.id === 'string' ? normalizeSessionId(session.id) : undefined) ??
+        normalizeSessionId(fileName);
       if (sessionId === undefined) {
+        return undefined;
+      }
+
+      const createdAt = toDate(session.created);
+      const modifiedAt = toDate(session.modified);
+      if (createdAt === undefined || modifiedAt === undefined) {
         return undefined;
       }
 
@@ -84,8 +93,8 @@ export async function listPersistedSessions(
         sessionId,
         fileName,
         filePath,
-        createdAt: session.created,
-        modifiedAt: session.modified,
+        createdAt,
+        modifiedAt,
         messageCount: session.messageCount,
       } satisfies PersistedSessionSummary;
     })
@@ -108,14 +117,32 @@ export async function readPersistedSession(
   }
 
   const sessions = await listPersistedSessions(agent);
-  const summary = sessions.find((session) => session.sessionId === normalizedId);
+  const summary = sessions.find(
+    (session) =>
+      session.sessionId === normalizedId || normalizeSessionId(session.fileName) === normalizedId,
+  );
   if (summary === undefined) {
     return undefined;
   }
 
+  const resolvedSessionDir = path.resolve(getAgentSessionDir(agent));
+  let readTargetPath = summary.filePath;
+  try {
+    const resolvedFilePath = await realpath(summary.filePath);
+    if (!isPathInsideDir(resolvedFilePath, resolvedSessionDir)) {
+      return undefined;
+    }
+    readTargetPath = resolvedFilePath;
+  } catch (error: unknown) {
+    if (hasErrorCode(error, 'ENOENT')) {
+      return undefined;
+    }
+    throw error;
+  }
+
   let content: string;
   try {
-    content = await readFile(summary.filePath, 'utf8');
+    content = await readFile(readTargetPath, 'utf8');
   } catch (error: unknown) {
     if (hasErrorCode(error, 'ENOENT')) {
       return undefined;
@@ -174,6 +201,7 @@ export async function readPersistedSession(
 
   return {
     ...summary,
+    rawJsonl: content,
     messageCount: messages.length,
     messages,
   };
@@ -181,6 +209,19 @@ export async function readPersistedSession(
 
 function isRecord(value: unknown): value is JsonRecord {
   return typeof value === 'object' && value !== null;
+}
+
+function toDate(value: unknown): Date | undefined {
+  if (value instanceof Date) {
+    return Number.isNaN(value.getTime()) ? undefined : value;
+  }
+
+  if (typeof value === 'string' || typeof value === 'number') {
+    const parsed = new Date(value);
+    return Number.isNaN(parsed.getTime()) ? undefined : parsed;
+  }
+
+  return undefined;
 }
 
 function extractMessageContent(content: unknown): string {

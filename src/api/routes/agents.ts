@@ -13,12 +13,15 @@ import type { SessionManager } from '../../core/session.js';
 import { createLogger, type Logger } from '../../utils/logger.js';
 import {
   listPersistedSessions,
+  normalizeSessionId,
   readPersistedSession,
 } from '../../core/session-files.js';
+import type { UsageTracker } from '../../core/usage.js';
 
 export interface AgentsRouterDependencies {
   registry: AgentRegistry;
   sessionManager: SessionManager;
+  usageTracker?: UsageTracker;
   logger?: Logger;
 }
 
@@ -259,12 +262,53 @@ export function createAgentsRouter(deps: AgentsRouterDependencies): Router {
           createdAt: session.createdAt.toISOString(),
           modifiedAt: session.modifiedAt.toISOString(),
           messageCount: session.messageCount,
+          rawJsonl: session.rawJsonl,
           messages: session.messages,
         },
       });
     } catch (error) {
       respondError(res, 500, error);
     }
+  });
+
+  router.get('/:id/sessions/:sessionId/usage', (req, res) => {
+    if (!deps.usageTracker) {
+      res.status(501).json({ error: 'Usage tracking not enabled' });
+      return;
+    }
+
+    const agent = deps.registry.getById(req.params.id);
+    if (agent === undefined) {
+      res.status(404).json({ error: 'Agent not found' });
+      return;
+    }
+
+    const periodParam = req.query.period;
+    const period = typeof periodParam === 'string' ? periodParam : 'day';
+    if (!['day', 'week', 'month'].includes(period)) {
+      res.status(400).json({ error: 'Invalid period. Use day|week|month' });
+      return;
+    }
+
+    const normalizedSessionId = normalizeSessionId(req.params.sessionId);
+    if (normalizedSessionId === undefined) {
+      res.status(400).json({ error: 'Invalid session id' });
+      return;
+    }
+
+    const usage = deps.usageTracker.getUsage(
+      agent.id,
+      period as 'day' | 'week' | 'month',
+      normalizedSessionId,
+    );
+    const summary = deps.usageTracker.getSessionSummary(agent.id, normalizedSessionId);
+
+    res.json({
+      sessionId: normalizedSessionId,
+      period,
+      usage,
+      summary,
+    });
   });
 
   // Usage endpoint is in server.ts (backed by UsageTracker)

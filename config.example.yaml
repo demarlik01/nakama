@@ -22,4 +22,4 @@ session:
   idleTimeoutMin: 30
   maxQueueSize: 10
   autoSummaryOnDispose: true
-  ttlDays: 30
+  sessionTTLDays: 30

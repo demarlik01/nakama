@@ -62,6 +62,7 @@ async function bootstrap(): Promise<void> {
   sessionManager.setNotifier(notifier);
 
   await registry.start();
+  await sessionManager.initialize();
   await apiServer.start();
   await slackGateway.start();
 
@@ -154,6 +155,7 @@ async function bootstrap(): Promise<void> {
     // Stop schedulers
     heartbeatScheduler.stopAll();
     cronScheduler.stopAll();
+    sessionManager.stop();
     usageTracker.close();
 
     await Promise.allSettled([
