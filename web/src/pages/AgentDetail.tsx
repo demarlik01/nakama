@@ -812,7 +812,7 @@ function extractErrorMessage(error: unknown, fallback: string): string {
     return fallback;
   }
 
-  const message = error.message.trim();
+  const message = error.message.replace(/^API \d+:\s*/u, "").trim();
   if (message === "") {
     return fallback;
   }

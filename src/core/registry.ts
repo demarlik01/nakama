@@ -1,5 +1,13 @@
 import { EventEmitter } from 'node:events';
-import { access, mkdir, readFile, readdir, rename, writeFile } from 'node:fs/promises';
+import {
+  access,
+  mkdir,
+  readFile,
+  readdir,
+  realpath,
+  rename,
+  writeFile,
+} from 'node:fs/promises';
 import path from 'node:path';
 
 import { type FSWatcher, watch } from 'chokidar';
@@ -237,19 +245,14 @@ export class AgentRegistry extends EventEmitter<AgentRegistryEvents> {
     }
 
     const rootPath = path.resolve(this.workspacesRoot);
+    const rootRealPath = await realpath(rootPath);
     const workspacePath = path.resolve(existing.workspacePath);
-    assertPathWithinRoot(workspacePath, rootPath, `workspace path for agent "${id}"`);
-
-    const archiveRoot = path.resolve(this.workspacesRoot, ARCHIVE_DIR);
-    const archivedName = `${id}-${new Date().toISOString().replace(/[:.]/g, '-')}`;
-    const archivePath = path.resolve(archiveRoot, archivedName);
-    assertPathWithinRoot(archivePath, archiveRoot, `archive path for agent "${id}"`);
-
-    await mkdir(archiveRoot, { recursive: true });
     let archived = false;
+    let archivedName: string | undefined;
+
+    let workspaceRealPath: string | undefined;
     try {
-      await rename(workspacePath, archivePath);
-      archived = true;
+      workspaceRealPath = await realpath(workspacePath);
     } catch (error: unknown) {
       if (!hasErrorCode(error, 'ENOENT')) {
         throw error;
@@ -260,6 +263,22 @@ export class AgentRegistry extends EventEmitter<AgentRegistryEvents> {
       });
     }
 
+    if (workspaceRealPath !== undefined) {
+      assertPathWithinRoot(workspaceRealPath, rootRealPath, `workspace path for agent "${id}"`);
+
+      const archiveRoot = path.resolve(this.workspacesRoot, ARCHIVE_DIR);
+      await mkdir(archiveRoot, { recursive: true });
+      const archiveRootRealPath = await realpath(archiveRoot);
+      assertPathWithinRoot(archiveRootRealPath, rootRealPath, 'archive workspace root');
+
+      archivedName = `${id}-${new Date().toISOString().replace(/[:.]/g, '-')}`;
+      const archivePath = path.resolve(archiveRootRealPath, archivedName);
+      assertPathWithinRoot(archivePath, archiveRootRealPath, `archive path for agent "${id}"`);
+
+      await rename(workspaceRealPath, archivePath);
+      archived = true;
+    }
+
     this.agents.delete(id);
     this.clearThreadMappingsForAgent(id);
     this.emit('agent:removed', id);
@@ -267,7 +286,7 @@ export class AgentRegistry extends EventEmitter<AgentRegistryEvents> {
     this.logger.info('Agent removed', {
       agentId: id,
       archived,
-      ...(archived ? { archivedName } : {}),
+      ...(archived && archivedName ? { archivedName } : {}),
     });
   }
 

@@ -236,6 +236,11 @@ export class SessionManager {
       return;
     }
 
+    if (runtime.state.threadTs !== undefined) {
+      this.registry.clearThread(runtime.state.threadTs);
+      runtime.state.threadTs = undefined;
+    }
+
     if (runtime.idleTimer !== undefined) {
       clearTimeout(runtime.idleTimer);
       runtime.idleTimer = undefined;
@@ -263,6 +268,12 @@ export class SessionManager {
     if (existing !== undefined) {
       this.touchIdleTimer(agent.id, existing);
       if (context.slackThreadTs !== undefined) {
+        if (
+          existing.state.threadTs !== undefined &&
+          existing.state.threadTs !== context.slackThreadTs
+        ) {
+          this.registry.clearThread(existing.state.threadTs);
+        }
         existing.state.threadTs = context.slackThreadTs;
         this.registry.registerThread(context.slackThreadTs, agent.id);
       }

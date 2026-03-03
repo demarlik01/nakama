@@ -1,4 +1,4 @@
-import { readFile, writeFile } from 'node:fs/promises';
+import { open, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { Router, type Request, type Response } from 'express';
 
@@ -171,7 +171,7 @@ export function createAgentsRouter(deps: AgentsRouterDependencies): Router {
         return;
       }
 
-      res.json({ status: 'idle' });
+      res.json({ status: agent.enabled ? 'idle' : 'disabled' });
       return;
     }
 
@@ -202,7 +202,7 @@ export function createAgentsRouter(deps: AgentsRouterDependencies): Router {
 
       let logs: Record<string, unknown>[] = [];
       if (existsSync(pm2LogPath)) {
-        const raw = await readFile(pm2LogPath, 'utf8');
+        const raw = await readTailChunk(pm2LogPath, limit);
         logs = selectAgentLogEntries(raw, agent.id, limit, level);
       }
 
@@ -588,6 +588,33 @@ function selectAgentLogEntries(
 
   entries.reverse();
   return entries;
+}
+
+async function readTailChunk(filePath: string, lineLimit: number): Promise<string> {
+  const handle = await open(filePath, 'r');
+  try {
+    const stats = await handle.stat();
+    if (stats.size <= 0) {
+      return '';
+    }
+
+    const minWindowBytes = 64 * 1024;
+    const maxWindowBytes = 2 * 1024 * 1024;
+    const bytesPerLineBudget = 2048;
+    const windowBytes = Math.max(
+      minWindowBytes,
+      Math.min(maxWindowBytes, lineLimit * bytesPerLineBudget),
+    );
+
+    const chunkSize = Math.min(windowBytes, stats.size);
+    const startOffset = Math.max(0, stats.size - chunkSize);
+    const buffer = Buffer.alloc(chunkSize);
+    const { bytesRead } = await handle.read(buffer, 0, chunkSize, startOffset);
+
+    return buffer.subarray(0, bytesRead).toString('utf8');
+  } finally {
+    await handle.close();
+  }
 }
 
 function parseStructuredLogLine(line: string): Record<string, unknown> | undefined {
