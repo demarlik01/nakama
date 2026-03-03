@@ -1,6 +1,8 @@
 export interface Agent {
   id: string;
   displayName: string;
+  slackDisplayName?: string;
+  slackIcon?: string;
   description: string;
   model: string;
   slackChannels: string[];
@@ -16,6 +18,8 @@ export interface Agent {
 export interface CreateAgentInput {
   id: string;
   displayName: string;
+  slackDisplayName?: string;
+  slackIcon?: string;
   description: string;
   model: string;
   slackChannels: string[];
@@ -53,8 +57,16 @@ export const fetchAgents = () => api<{agents: Agent[]}>("/api/agents").then(r =>
 export const fetchAgent = (id: string) => api<Agent>(`/api/agents/${id}`);
 export const createAgent = (data: CreateAgentInput) =>
   api<Agent>("/api/agents", { method: "POST", body: JSON.stringify(data) });
-export const updateAgent = (id: string, data: Partial<Agent>) =>
-  api<Agent>(`/api/agents/${id}`, { method: "PUT", body: JSON.stringify(data) });
+export const updateAgent = (id: string, data: Partial<Agent>) => {
+  const payload: Record<string, unknown> = { ...data };
+  if (payload.slackDisplayName === "") {
+    payload.slackDisplayName = null;
+  }
+  if (payload.slackIcon === "") {
+    payload.slackIcon = null;
+  }
+  return api<Agent>(`/api/agents/${id}`, { method: "PUT", body: JSON.stringify(payload) });
+};
 export const deleteAgent = (id: string) =>
   api<void>(`/api/agents/${id}`, { method: "DELETE" });
 export const fetchHealth = () => api<HealthInfo>("/api/health");

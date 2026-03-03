@@ -6,7 +6,7 @@ import { pipeline } from 'node:stream/promises';
 import { Readable } from 'node:stream';
 import { join, basename } from 'node:path';
 
-import type { AppConfig, SlackMessageEvent } from '../types.js';
+import type { AgentDefinition, AppConfig, SlackMessageEvent } from '../types.js';
 import { createLogger, type Logger } from '../utils/logger.js';
 import type { MessageRouter } from '../core/router.js';
 import { markdownToBlocks, markdownToPlainText, splitBlocksForSlack } from './block-kit.js';
@@ -97,8 +97,14 @@ export class SlackGateway {
    * Post a text message to a Slack channel.
    * Used by schedulers (heartbeat, cron) to deliver agent responses.
    */
-  async postMessage(channelId: string, text: string, threadTs?: string): Promise<void> {
+  async postMessage(
+    channelId: string,
+    text: string,
+    threadTs?: string,
+    agent?: AgentDefinition,
+  ): Promise<void> {
     const client = this.getClient();
+    const identityOverrides = this.getMessageIdentityOverrides(agent);
 
     try {
       const blocks = markdownToBlocks(text);
@@ -112,6 +118,7 @@ export class SlackGateway {
           text: textChunks[i] ?? plainFallback.slice(0, SLACK_MAX_MESSAGE_LENGTH),
           blocks: blockChunks[i] as any[],
           ...(threadTs !== undefined ? { thread_ts: threadTs } : {}),
+          ...identityOverrides,
         });
       }
     } catch {
@@ -122,6 +129,7 @@ export class SlackGateway {
           channel: channelId,
           text: chunk,
           ...(threadTs !== undefined ? { thread_ts: threadTs } : {}),
+          ...identityOverrides,
         });
       }
     }
@@ -217,7 +225,7 @@ export class SlackGateway {
         },
       );
 
-      await this.replyToSlack(say, response, threadTs);
+      await this.replyToSlack(client, say, normalized.channel, response, threadTs, route.agent);
 
       // ✅ Reaction: success
       if (channel && messageTs) {
@@ -242,7 +250,14 @@ export class SlackGateway {
 
       // Send user-friendly error message
       const errorMessage = '죄송합니다, 문제가 발생했습니다. 잠시 후 다시 시도해 주세요.';
-      await this.replyToSlack(say, errorMessage, threadTs).catch((sayErr) => {
+      await this.replyToSlack(
+        client,
+        say,
+        normalized.channel,
+        errorMessage,
+        threadTs,
+        route.agent,
+      ).catch((sayErr) => {
         this.logger.error('Failed to send error message to user', {
           error: String(sayErr),
         });
@@ -396,6 +411,7 @@ ${originalMessage.text}`,
             text: textChunks[i] ?? plainFallback.slice(0, SLACK_MAX_MESSAGE_LENGTH),
             blocks: blockChunks[i] as any[],
             thread_ts: messageTs,
+            ...this.getMessageIdentityOverrides(agent),
           });
         }
 
@@ -412,7 +428,16 @@ ${originalMessage.text}`,
     }
   }
 
-  private async replyToSlack(say: SayLike, text: string, threadTs?: string): Promise<void> {
+  private async replyToSlack(
+    client: WebClient,
+    say: SayLike,
+    channelId: string | undefined,
+    text: string,
+    threadTs?: string,
+    agent?: AgentDefinition,
+  ): Promise<void> {
+    const identityOverrides = this.getMessageIdentityOverrides(agent);
+
     // Try Block Kit formatting, fall back to plain text
     try {
       const blocks = markdownToBlocks(text);
@@ -428,12 +453,31 @@ ${originalMessage.text}`,
         if (threadTs !== undefined) {
           payload.thread_ts = threadTs;
         }
-        await say(payload as unknown as SayPayload);
+
+        if (channelId !== undefined) {
+          await client.chat.postMessage({
+            channel: channelId,
+            ...(payload as { text: string; blocks?: unknown[]; thread_ts?: string }),
+            ...identityOverrides,
+          });
+        } else {
+          await say(payload as unknown as SayPayload);
+        }
       }
     } catch {
       // Fallback to plain text
       const chunks = splitMessage(text, SLACK_MAX_MESSAGE_LENGTH);
       for (const chunk of chunks) {
+        if (channelId !== undefined) {
+          await client.chat.postMessage({
+            channel: channelId,
+            text: chunk,
+            ...(threadTs !== undefined ? { thread_ts: threadTs } : {}),
+            ...identityOverrides,
+          });
+          continue;
+        }
+
         if (threadTs !== undefined) {
           await say({ text: chunk, thread_ts: threadTs });
         } else {
@@ -441,6 +485,21 @@ ${originalMessage.text}`,
         }
       }
     }
+  }
+
+  private getMessageIdentityOverrides(
+    agent?: Pick<AgentDefinition, 'displayName' | 'slackDisplayName' | 'slackIcon'>,
+  ): {
+    username?: string;
+    icon_emoji?: string;
+  } {
+    const username = agent?.slackDisplayName ?? agent?.displayName;
+    const iconEmoji = agent?.slackIcon;
+
+    return {
+      ...(username !== undefined ? { username } : {}),
+      ...(iconEmoji !== undefined ? { icon_emoji: iconEmoji } : {}),
+    };
   }
 }
 

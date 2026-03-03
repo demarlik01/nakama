@@ -37,8 +37,9 @@ async function bootstrap(): Promise<void> {
   const slackGateway = new SlackGateway(config, router, sessionManager, logger.child('slack'));
 
   // Post-to-Slack helper for schedulers (uses Slack Web API directly)
-  const postToSlack = async (channelId: string, text: string, _agentId: string): Promise<void> => {
-    await slackGateway.postMessage(channelId, text);
+  const postToSlack = async (channelId: string, text: string, agentId: string): Promise<void> => {
+    const agent = registry.getById(agentId);
+    await slackGateway.postMessage(channelId, text, undefined, agent);
   };
 
   const heartbeatScheduler = new HeartbeatScheduler(

@@ -28,10 +28,20 @@ export class MessageRouter {
       }
     }
 
-    if (event.type === 'app_mention' && event.botUserId !== undefined) {
-      const byMention = this.registry.findByBotUserId(event.botUserId);
-      if (byMention !== undefined) {
-        return { agent: byMention, threadTs };
+    if (event.type === 'app_mention') {
+      const byAgentName = this.findAgentByMentionedName(
+        event.text,
+        this.registry.getAll().filter((agent) => agent.enabled),
+      );
+      if (byAgentName !== undefined) {
+        return { agent: byAgentName, threadTs };
+      }
+
+      if (event.botUserId !== undefined) {
+        const byBotUserId = this.registry.findByBotUserId(event.botUserId);
+        if (byBotUserId !== undefined) {
+          return { agent: byBotUserId, threadTs };
+        }
       }
     }
 
@@ -45,10 +55,9 @@ export class MessageRouter {
 
     if (event.channel !== undefined) {
       const channelAgents = this.registry.findBySlackChannel(event.channel);
-      const first = channelAgents[0];
-      if (first !== undefined) {
-        // TODO: Support disambiguation when multiple agents are mapped to the same channel.
-        return { agent: first, threadTs };
+      const selected = this.selectChannelAgent(channelAgents, event.user, event.text);
+      if (selected !== undefined) {
+        return { agent: selected, threadTs };
       }
     }
 
@@ -68,4 +77,82 @@ export class MessageRouter {
   getAllAgents(): AgentDefinition[] {
     return this.registry.getAll();
   }
+
+  private selectChannelAgent(
+    channelAgents: AgentDefinition[],
+    userId?: string,
+    text?: string,
+  ): AgentDefinition | undefined {
+    if (channelAgents.length === 0) {
+      return undefined;
+    }
+    if (channelAgents.length === 1) {
+      return channelAgents[0];
+    }
+
+    const normalizedUserId = userId?.trim();
+    if (normalizedUserId !== undefined && normalizedUserId.length > 0) {
+      const byUser = channelAgents.find((agent) => agent.slackUsers.includes(normalizedUserId));
+      if (byUser !== undefined) {
+        return byUser;
+      }
+    }
+
+    const byMention = this.findAgentByMentionedName(text, channelAgents);
+    if (byMention !== undefined) {
+      return byMention;
+    }
+
+    return channelAgents[0];
+  }
+
+  private findAgentByMentionedName(
+    text: string | undefined,
+    candidates: AgentDefinition[],
+  ): AgentDefinition | undefined {
+    if (text === undefined) {
+      return undefined;
+    }
+
+    const normalizedText = normalizeForMatch(text);
+    if (normalizedText.length === 0) {
+      return undefined;
+    }
+
+    let bestMatch: { agent: AgentDefinition; keyLength: number } | undefined;
+    for (const agent of candidates) {
+      for (const key of getAgentMatchKeys(agent)) {
+        const normalizedKey = normalizeForMatch(key);
+        if (normalizedKey.length === 0 || !containsWholePhrase(normalizedText, normalizedKey)) {
+          continue;
+        }
+
+        if (bestMatch === undefined || normalizedKey.length > bestMatch.keyLength) {
+          bestMatch = { agent, keyLength: normalizedKey.length };
+        }
+      }
+    }
+
+    return bestMatch?.agent;
+  }
+}
+
+function getAgentMatchKeys(agent: AgentDefinition): string[] {
+  const keys = [agent.slackDisplayName, agent.displayName, agent.id]
+    .map((value) => value?.trim())
+    .filter((value): value is string => value !== undefined && value.length > 0);
+
+  return [...new Set(keys)];
+}
+
+function normalizeForMatch(value: string): string {
+  return value
+    .normalize('NFKC')
+    .toLocaleLowerCase()
+    .replace(/[^\p{L}\p{N}]+/gu, ' ')
+    .trim();
+}
+
+function containsWholePhrase(text: string, phrase: string): boolean {
+  return ` ${text} `.includes(` ${phrase} `);
 }

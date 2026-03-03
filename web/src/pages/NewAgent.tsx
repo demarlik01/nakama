@@ -27,6 +27,8 @@ export function NewAgent() {
   const [form, setForm] = useState({
     id: "",
     displayName: "",
+    slackDisplayName: "",
+    slackIcon: "",
     description: "",
     model: MODELS[0],
     slackChannels: "",
@@ -45,6 +47,8 @@ export function NewAgent() {
       await createAgent({
         id: form.id,
         displayName: form.displayName,
+        slackDisplayName: form.slackDisplayName.trim() || undefined,
+        slackIcon: form.slackIcon.trim() || undefined,
         description: form.description,
         model: form.model,
         slackChannels: form.slackChannels.split(",").map((s) => s.trim()).filter(Boolean),
@@ -77,6 +81,22 @@ export function NewAgent() {
           <Input
             value={form.displayName}
             onChange={(e) => setForm({ ...form, displayName: e.target.value })}
+          />
+        </div>
+        <div className="grid gap-1.5">
+          <Label>Slack Display Name (optional)</Label>
+          <Input
+            value={form.slackDisplayName}
+            onChange={(e) => setForm({ ...form, slackDisplayName: e.target.value })}
+            placeholder="Agent Bot Name"
+          />
+        </div>
+        <div className="grid gap-1.5">
+          <Label>Slack Icon Emoji (optional)</Label>
+          <Input
+            value={form.slackIcon}
+            onChange={(e) => setForm({ ...form, slackIcon: e.target.value })}
+            placeholder=":robot_face:"
           />
         </div>
         <div className="grid gap-1.5">

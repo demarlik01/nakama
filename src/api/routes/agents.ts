@@ -258,6 +258,8 @@ function asCreateAgentParams(value: unknown): CreateAgentParams {
   return {
     id: asString(body.id, 'id'),
     displayName: asString(body.displayName, 'displayName'),
+    slackDisplayName: asOptionalString(body.slackDisplayName, 'slackDisplayName'),
+    slackIcon: asOptionalString(body.slackIcon, 'slackIcon'),
     description: asOptionalString(body.description, 'description'),
     agentsMd: asString(body.agentsMd, 'agentsMd'),
     slackChannels: asStringArray(body.slackChannels, 'slackChannels'),
@@ -273,6 +275,12 @@ function asUpdateAgentParams(value: unknown): UpdateAgentParams {
 
   if ('displayName' in body) {
     payload.displayName = asString(body.displayName, 'displayName');
+  }
+  if ('slackDisplayName' in body) {
+    payload.slackDisplayName = asOptionalString(body.slackDisplayName, 'slackDisplayName');
+  }
+  if ('slackIcon' in body) {
+    payload.slackIcon = asOptionalString(body.slackIcon, 'slackIcon');
   }
   if ('description' in body) {
     payload.description = asOptionalString(body.description, 'description');

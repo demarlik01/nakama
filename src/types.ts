@@ -28,6 +28,8 @@ export interface LimitsConfig {
 export interface AgentDefinition {
   id: string;
   displayName: string;
+  slackDisplayName?: string;
+  slackIcon?: string;
   description?: string;
   workspacePath: string;
   slackChannels: string[];
@@ -58,6 +60,8 @@ export interface AppConfig {
 
 export interface AgentMetadata {
   displayName: string;
+  slackDisplayName?: string;
+  slackIcon?: string;
   description?: string;
   slackChannels: string[];
   slackUsers: string[];
@@ -74,6 +78,8 @@ export interface AgentMetadata {
 export interface CreateAgentParams {
   id: string;
   displayName: string;
+  slackDisplayName?: string;
+  slackIcon?: string;
   description?: string;
   agentsMd: string;
   slackChannels: string[];
@@ -89,6 +95,8 @@ export interface CreateAgentParams {
 
 export interface UpdateAgentParams {
   displayName?: string;
+  slackDisplayName?: string;
+  slackIcon?: string;
   description?: string;
   slackChannels?: string[];
   slackUsers?: string[];

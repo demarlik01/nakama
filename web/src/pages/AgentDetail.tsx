@@ -157,6 +157,22 @@ export function AgentDetail() {
               />
             </div>
             <div className="grid gap-1.5">
+              <Label>Slack Display Name</Label>
+              <Input
+                value={form.slackDisplayName ?? ""}
+                onChange={(e) => setForm({ ...form, slackDisplayName: e.target.value })}
+                placeholder="Agent Bot Name"
+              />
+            </div>
+            <div className="grid gap-1.5">
+              <Label>Slack Icon Emoji</Label>
+              <Input
+                value={form.slackIcon ?? ""}
+                onChange={(e) => setForm({ ...form, slackIcon: e.target.value })}
+                placeholder=":robot_face:"
+              />
+            </div>
+            <div className="grid gap-1.5">
               <Label>Description</Label>
               <Textarea
                 value={form.description ?? ""}

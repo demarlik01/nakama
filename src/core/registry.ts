@@ -125,6 +125,8 @@ export class AgentRegistry extends EventEmitter<AgentRegistryEvents> {
       writeFile(path.join(workspacePath, AGENTS_MD_FILE), normalizeFile(params.agentsMd), 'utf8'),
       writeJson(path.join(workspacePath, AGENT_JSON_FILE), {
         displayName: params.displayName,
+        slackDisplayName: params.slackDisplayName,
+        slackIcon: params.slackIcon,
         description: params.description,
         slackChannels: params.slackChannels,
         slackUsers: params.slackUsers,
@@ -162,6 +164,8 @@ export class AgentRegistry extends EventEmitter<AgentRegistryEvents> {
     const metadataPath = path.join(existing.workspacePath, AGENT_JSON_FILE);
     const currentMetadata = (await readJsonIfExists(metadataPath)) ?? {
       displayName: existing.displayName,
+      slackDisplayName: existing.slackDisplayName,
+      slackIcon: existing.slackIcon,
       description: existing.description,
       slackChannels: existing.slackChannels,
       slackUsers: existing.slackUsers,
@@ -175,8 +179,13 @@ export class AgentRegistry extends EventEmitter<AgentRegistryEvents> {
       reactionTriggers: existing.reactionTriggers,
     };
 
+    const hasSlackDisplayName = Object.prototype.hasOwnProperty.call(params, 'slackDisplayName');
+    const hasSlackIcon = Object.prototype.hasOwnProperty.call(params, 'slackIcon');
+
     const mergedMetadata: AgentMetadata = {
       displayName: params.displayName ?? currentMetadata.displayName,
+      slackDisplayName: hasSlackDisplayName ? params.slackDisplayName : currentMetadata.slackDisplayName,
+      slackIcon: hasSlackIcon ? params.slackIcon : currentMetadata.slackIcon,
       description: params.description ?? currentMetadata.description,
       slackChannels: params.slackChannels ?? currentMetadata.slackChannels,
       slackUsers: params.slackUsers ?? currentMetadata.slackUsers,
@@ -352,6 +361,8 @@ export class AgentRegistry extends EventEmitter<AgentRegistryEvents> {
     return {
       id,
       displayName: metadata.displayName,
+      slackDisplayName: metadata.slackDisplayName,
+      slackIcon: metadata.slackIcon,
       description: metadata.description,
       workspacePath,
       slackChannels: metadata.slackChannels,
@@ -412,6 +423,8 @@ async function readJsonIfExists(filePath: string): Promise<AgentMetadata | null>
 
     const metadata: AgentMetadata = {
       displayName: asString(parsed.displayName, 'displayName'),
+      slackDisplayName: asOptionalString(parsed.slackDisplayName, 'slackDisplayName'),
+      slackIcon: asOptionalString(parsed.slackIcon, 'slackIcon'),
       description: asOptionalString(parsed.description, 'description'),
       slackChannels: asStringArray(parsed.slackChannels, 'slackChannels'),
       slackUsers: asStringArray(parsed.slackUsers, 'slackUsers'),
