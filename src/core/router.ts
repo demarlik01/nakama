@@ -33,8 +33,8 @@ export class MessageRouter {
         event.text,
         this.registry.getAll().filter((agent) => agent.enabled),
       );
-      if (byAgentName !== undefined) {
-        return { agent: byAgentName, threadTs };
+      if (byAgentName.type === 'match') {
+        return { agent: byAgentName.agent, threadTs };
       }
 
       if (event.botUserId !== undefined) {
@@ -42,6 +42,14 @@ export class MessageRouter {
         if (byBotUserId !== undefined) {
           return { agent: byBotUserId, threadTs };
         }
+      }
+
+      if (byAgentName.type === 'ambiguous') {
+        this.logger.debug('Skipping route for ambiguous app mention', {
+          text: event.text,
+          candidateIds: byAgentName.candidateIds,
+        });
+        return null;
       }
     }
 
@@ -99,8 +107,15 @@ export class MessageRouter {
     }
 
     const byMention = this.findAgentByMentionedName(text, channelAgents);
-    if (byMention !== undefined) {
-      return byMention;
+    if (byMention.type === 'match') {
+      return byMention.agent;
+    }
+    if (byMention.type === 'ambiguous') {
+      this.logger.debug('Skipping channel fallback for ambiguous mention', {
+        text,
+        candidateIds: byMention.candidateIds,
+      });
+      return undefined;
     }
 
     return channelAgents[0];
@@ -109,17 +124,19 @@ export class MessageRouter {
   private findAgentByMentionedName(
     text: string | undefined,
     candidates: AgentDefinition[],
-  ): AgentDefinition | undefined {
+  ): MentionMatch {
     if (text === undefined) {
-      return undefined;
+      return { type: 'none' };
     }
 
     const normalizedText = normalizeForMatch(text);
     if (normalizedText.length === 0) {
-      return undefined;
+      return { type: 'none' };
     }
 
     let bestMatch: { agent: AgentDefinition; keyLength: number } | undefined;
+    let hasAmbiguousBestMatch = false;
+    const matchedCandidateIds = new Set<string>();
     for (const agent of candidates) {
       for (const key of getAgentMatchKeys(agent)) {
         const normalizedKey = normalizeForMatch(key);
@@ -127,15 +144,42 @@ export class MessageRouter {
           continue;
         }
 
+        matchedCandidateIds.add(agent.id);
+
         if (bestMatch === undefined || normalizedKey.length > bestMatch.keyLength) {
           bestMatch = { agent, keyLength: normalizedKey.length };
+          hasAmbiguousBestMatch = false;
+          continue;
+        }
+
+        if (
+          normalizedKey.length === bestMatch.keyLength &&
+          bestMatch.agent.id !== agent.id
+        ) {
+          hasAmbiguousBestMatch = true;
         }
       }
     }
 
-    return bestMatch?.agent;
+    if (hasAmbiguousBestMatch) {
+      return {
+        type: 'ambiguous',
+        candidateIds: [...matchedCandidateIds].sort((left, right) => left.localeCompare(right)),
+      };
+    }
+
+    if (bestMatch === undefined) {
+      return { type: 'none' };
+    }
+
+    return { type: 'match', agent: bestMatch.agent };
   }
 }
+
+type MentionMatch =
+  | { type: 'none' }
+  | { type: 'match'; agent: AgentDefinition }
+  | { type: 'ambiguous'; candidateIds: string[] };
 
 function getAgentMatchKeys(agent: AgentDefinition): string[] {
   const keys = [agent.slackDisplayName, agent.displayName, agent.id]

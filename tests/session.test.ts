@@ -33,6 +33,7 @@ vi.mock('@mariozechner/pi-coding-agent', () => ({
     },
   }),
   SessionManager: {
+    continueRecent: vi.fn().mockReturnValue({}),
     inMemory: vi.fn().mockReturnValue({}),
   },
 }));
@@ -48,7 +49,7 @@ describe('SessionManager', () => {
     slack: { appToken: 'xapp-test', botToken: 'xoxb-test' },
     llm: { provider: 'anthropic', defaultModel: 'claude-sonnet-4-20250514', auth: 'test' },
     workspaces: { root: '', shared: '_shared' },
-    session: { idleTimeoutMin: 30, maxQueueSize: 100, autoSummaryOnDispose: false },
+    session: { idleTimeoutMin: 30, maxQueueSize: 100, autoSummaryOnDispose: false, ttlDays: 30 },
     api: { enabled: false, port: 3000 },
   };
 

@@ -1,9 +1,13 @@
-import { useEffect, useState, useCallback } from "react";
+import { useEffect, useState, useCallback, useRef } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import {
   type Agent,
+  type AgentSessionDetail,
+  type AgentSessionSummary,
   type DailyUsage,
   fetchAgent,
+  fetchAgentSession,
+  fetchAgentSessions,
   updateAgent,
   deleteAgent,
   fetchAgentUsage,
@@ -16,6 +20,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import {
   Dialog,
   DialogContent,
@@ -35,21 +40,32 @@ export function AgentDetail() {
   const [form, setForm] = useState<Partial<Agent>>({});
   const [mdContent, setMdContent] = useState("");
   const [usage, setUsage] = useState<DailyUsage[]>([]);
+  const [sessions, setSessions] = useState<AgentSessionSummary[]>([]);
+  const [selectedSessionId, setSelectedSessionId] = useState<string | null>(null);
+  const [selectedSession, setSelectedSession] = useState<AgentSessionDetail | null>(null);
+  const [loadingSession, setLoadingSession] = useState(false);
   const [loading, setLoading] = useState(true);
   const [logs, setLogs] = useState<Array<{ message: string; timestamp: string; level?: string }>>([]);
+  const sessionRequestSeq = useRef(0);
 
   const load = useCallback(async () => {
     if (!id) return;
     try {
-      const [a, md, u] = await Promise.all([
+      const [a, md, u, persistedSessions] = await Promise.all([
         fetchAgent(id),
         fetchAgentsMd(id).catch(() => ({ content: "" })),
         fetchAgentUsage(id).catch(() => ({ daily: [] })),
+        fetchAgentSessions(id).catch(() => []),
       ]);
       setAgent(a);
       setForm(a);
       setMdContent(md.content);
       setUsage(u.daily);
+      setSessions(persistedSessions);
+      setSelectedSessionId(null);
+      setSelectedSession(null);
+      sessionRequestSeq.current += 1;
+      setLoadingSession(false);
     } catch (e) {
       console.error(e);
       toast.error("Failed to load agent");
@@ -125,6 +141,29 @@ export function AgentDetail() {
     }
   };
 
+  const handleSelectSession = async (sessionId: string) => {
+    if (!id) return;
+
+    const requestSeq = sessionRequestSeq.current + 1;
+    sessionRequestSeq.current = requestSeq;
+    setSelectedSessionId(sessionId);
+    setSelectedSession(null);
+    setLoadingSession(true);
+
+    try {
+      const detail = await fetchAgentSession(id, sessionId);
+      if (sessionRequestSeq.current !== requestSeq) return;
+      setSelectedSession(detail);
+    } catch {
+      if (sessionRequestSeq.current !== requestSeq) return;
+      setSelectedSession(null);
+      toast.error("Failed to load session history");
+    } finally {
+      if (sessionRequestSeq.current !== requestSeq) return;
+      setLoadingSession(false);
+    }
+  };
+
   if (loading) return <div className="text-muted-foreground">Loading...</div>;
   if (!agent) return <div className="text-destructive">Agent not found</div>;
 
@@ -144,6 +183,7 @@ export function AgentDetail() {
           <TabsTrigger value="config">Config</TabsTrigger>
           <TabsTrigger value="agents-md">AGENTS.md</TabsTrigger>
           <TabsTrigger value="usage">Usage</TabsTrigger>
+          <TabsTrigger value="sessions">Sessions</TabsTrigger>
           <TabsTrigger value="logs">Logs</TabsTrigger>
         </TabsList>
 
@@ -316,6 +356,80 @@ export function AgentDetail() {
                   <span className="w-3 h-3 rounded bg-chart-2 inline-block" /> Output
                 </span>
               </div>
+            </div>
+          )}
+        </TabsContent>
+
+        <TabsContent value="sessions" className="mt-4">
+          {sessions.length === 0 ? (
+            <p className="text-muted-foreground">No persisted sessions yet.</p>
+          ) : (
+            <div className="grid gap-4 lg:grid-cols-[280px_1fr]">
+              <div className="space-y-2 max-h-[520px] overflow-y-auto pr-1">
+                {sessions.map((session) => (
+                  <Card
+                    key={session.sessionId}
+                    className={`cursor-pointer transition-colors ${
+                      selectedSessionId === session.sessionId
+                        ? "border-primary"
+                        : "hover:border-primary/50"
+                    }`}
+                    onClick={() => handleSelectSession(session.sessionId)}
+                  >
+                    <CardHeader className="p-3 pb-2">
+                      <CardTitle className="text-sm font-medium truncate">
+                        {session.fileName}
+                      </CardTitle>
+                    </CardHeader>
+                    <CardContent className="p-3 pt-0 text-xs text-muted-foreground space-y-1">
+                      <div>{session.messageCount} messages</div>
+                      <div>{new Date(session.createdAt).toLocaleString()}</div>
+                    </CardContent>
+                  </Card>
+                ))}
+              </div>
+
+              <Card className="min-h-[320px]">
+                <CardHeader className="pb-3">
+                  <CardTitle className="text-base">
+                    {selectedSession ? selectedSession.fileName : "Session timeline"}
+                  </CardTitle>
+                </CardHeader>
+                <CardContent>
+                  {!selectedSessionId ? (
+                    <p className="text-sm text-muted-foreground">
+                      Select a session to view messages.
+                    </p>
+                  ) : loadingSession ? (
+                    <p className="text-sm text-muted-foreground">Loading session...</p>
+                  ) : !selectedSession ? (
+                    <p className="text-sm text-muted-foreground">Session not found.</p>
+                  ) : selectedSession.messages.length === 0 ? (
+                    <p className="text-sm text-muted-foreground">No messages in this session.</p>
+                  ) : (
+                    <div className="space-y-2 max-h-[460px] overflow-y-auto pr-1">
+                      {selectedSession.messages.map((message, index) => (
+                        <div
+                          key={`${message.timestamp}-${index}`}
+                          className={`rounded-lg border p-3 text-sm ${
+                            message.role === "user"
+                              ? "bg-muted/50"
+                              : "bg-primary/10"
+                          }`}
+                        >
+                          <div className="flex items-center justify-between gap-2 mb-1">
+                            <span className="font-medium">{message.role}</span>
+                            <span className="text-xs text-muted-foreground">
+                              {new Date(message.timestamp).toLocaleString()}
+                            </span>
+                          </div>
+                          <div className="whitespace-pre-wrap break-words">{message.content}</div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </CardContent>
+              </Card>
             </div>
           )}
         </TabsContent>

@@ -5,13 +5,16 @@ import { Router, type Request, type Response } from 'express';
 import type {
   AgentDefinition,
   CreateAgentParams,
-  SessionState,
   UpdateAgentParams,
 } from '../../types.js';
 import type { AgentRegistry } from '../../core/registry.js';
 import { ConflictError, NotFoundError } from '../../core/registry.js';
 import type { SessionManager } from '../../core/session.js';
 import { createLogger, type Logger } from '../../utils/logger.js';
+import {
+  listPersistedSessions,
+  readPersistedSession,
+} from '../../core/session-files.js';
 
 export interface AgentsRouterDependencies {
   registry: AgentRegistry;
@@ -212,14 +215,56 @@ export function createAgentsRouter(deps: AgentsRouterDependencies): Router {
     }
   });
 
-  router.get('/:id/sessions', (req, res) => {
-    const sessions = deps
-      .sessionManager
-      .getAllSessions()
-      .filter((session) => session.agentId === req.params.id)
-      .map((session) => serializeSession(session));
+  router.get('/:id/sessions', async (req, res) => {
+    const agent = deps.registry.getById(req.params.id);
+    if (agent === undefined) {
+      res.status(404).json({ error: 'Agent not found' });
+      return;
+    }
 
-    res.json({ sessions });
+    try {
+      const sessions = await listPersistedSessions(agent);
+      res.json({
+        sessions: sessions.map((session) => ({
+          sessionId: session.sessionId,
+          fileName: session.fileName,
+          createdAt: session.createdAt.toISOString(),
+          modifiedAt: session.modifiedAt.toISOString(),
+          messageCount: session.messageCount,
+        })),
+      });
+    } catch (error) {
+      respondError(res, 500, error);
+    }
+  });
+
+  router.get('/:id/sessions/:sessionId', async (req, res) => {
+    const agent = deps.registry.getById(req.params.id);
+    if (agent === undefined) {
+      res.status(404).json({ error: 'Agent not found' });
+      return;
+    }
+
+    try {
+      const session = await readPersistedSession(agent, req.params.sessionId);
+      if (session === undefined) {
+        res.status(404).json({ error: 'Session not found' });
+        return;
+      }
+
+      res.json({
+        session: {
+          sessionId: session.sessionId,
+          fileName: session.fileName,
+          createdAt: session.createdAt.toISOString(),
+          modifiedAt: session.modifiedAt.toISOString(),
+          messageCount: session.messageCount,
+          messages: session.messages,
+        },
+      });
+    } catch (error) {
+      respondError(res, 500, error);
+    }
   });
 
   // Usage endpoint is in server.ts (backed by UsageTracker)
@@ -243,13 +288,6 @@ export function createAgentsRouter(deps: AgentsRouterDependencies): Router {
   });
 
   return router;
-}
-
-function serializeSession(session: SessionState): SessionState {
-  return {
-    ...session,
-    lastActivityAt: new Date(session.lastActivityAt),
-  };
 }
 
 function asCreateAgentParams(value: unknown): CreateAgentParams {

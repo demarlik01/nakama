@@ -55,6 +55,7 @@ export interface AppConfig {
     idleTimeoutMin: number;
     maxQueueSize: number;
     autoSummaryOnDispose: boolean;
+    ttlDays: number;
   };
 }
 

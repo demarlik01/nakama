@@ -113,24 +113,30 @@ export class SlackGateway {
       const textChunks = splitMessage(plainFallback, SLACK_MAX_MESSAGE_LENGTH);
 
       for (let i = 0; i < blockChunks.length; i++) {
-        await client.chat.postMessage({
-          channel: channelId,
-          text: textChunks[i] ?? plainFallback.slice(0, SLACK_MAX_MESSAGE_LENGTH),
-          blocks: blockChunks[i] as any[],
-          ...(threadTs !== undefined ? { thread_ts: threadTs } : {}),
-          ...identityOverrides,
-        });
+        await this.postMessageWithIdentityFallback(
+          client,
+          {
+            channel: channelId,
+            text: textChunks[i] ?? plainFallback.slice(0, SLACK_MAX_MESSAGE_LENGTH),
+            blocks: blockChunks[i] as any[],
+            ...(threadTs !== undefined ? { thread_ts: threadTs } : {}),
+          },
+          identityOverrides,
+        );
       }
     } catch {
       // Fallback to plain text
       const chunks = splitMessage(text, SLACK_MAX_MESSAGE_LENGTH);
       for (const chunk of chunks) {
-        await client.chat.postMessage({
-          channel: channelId,
-          text: chunk,
-          ...(threadTs !== undefined ? { thread_ts: threadTs } : {}),
-          ...identityOverrides,
-        });
+        await this.postMessageWithIdentityFallback(
+          client,
+          {
+            channel: channelId,
+            text: chunk,
+            ...(threadTs !== undefined ? { thread_ts: threadTs } : {}),
+          },
+          identityOverrides,
+        );
       }
     }
   }
@@ -404,15 +410,19 @@ ${originalMessage.text}`,
         const blockChunks = splitBlocksForSlack(blocks);
         const plainFallback = markdownToPlainText(response);
         const textChunks = splitMessage(plainFallback, SLACK_MAX_MESSAGE_LENGTH);
+        const identityOverrides = this.getMessageIdentityOverrides(agent);
 
         for (let i = 0; i < blockChunks.length; i++) {
-          await client.chat.postMessage({
-            channel,
-            text: textChunks[i] ?? plainFallback.slice(0, SLACK_MAX_MESSAGE_LENGTH),
-            blocks: blockChunks[i] as any[],
-            thread_ts: messageTs,
-            ...this.getMessageIdentityOverrides(agent),
-          });
+          await this.postMessageWithIdentityFallback(
+            client,
+            {
+              channel,
+              text: textChunks[i] ?? plainFallback.slice(0, SLACK_MAX_MESSAGE_LENGTH),
+              blocks: blockChunks[i] as any[],
+              thread_ts: messageTs,
+            },
+            identityOverrides,
+          );
         }
 
         await removeReaction(client, channel, messageTs, 'eyes').catch(() => {});
@@ -446,7 +456,11 @@ ${originalMessage.text}`,
       const textChunks = splitMessage(plainFallback, SLACK_MAX_MESSAGE_LENGTH);
 
       for (let i = 0; i < blockChunks.length; i++) {
-        const payload: Record<string, unknown> = {
+        const payload: {
+          text: string;
+          blocks?: unknown[];
+          thread_ts?: string;
+        } = {
           text: textChunks[i] ?? plainFallback.slice(0, SLACK_MAX_MESSAGE_LENGTH),
           blocks: blockChunks[i],
         };
@@ -455,11 +469,14 @@ ${originalMessage.text}`,
         }
 
         if (channelId !== undefined) {
-          await client.chat.postMessage({
-            channel: channelId,
-            ...(payload as { text: string; blocks?: unknown[]; thread_ts?: string }),
-            ...identityOverrides,
-          });
+          await this.postMessageWithIdentityFallback(
+            client,
+            {
+              channel: channelId,
+              ...payload,
+            },
+            identityOverrides,
+          );
         } else {
           await say(payload as unknown as SayPayload);
         }
@@ -469,12 +486,15 @@ ${originalMessage.text}`,
       const chunks = splitMessage(text, SLACK_MAX_MESSAGE_LENGTH);
       for (const chunk of chunks) {
         if (channelId !== undefined) {
-          await client.chat.postMessage({
-            channel: channelId,
-            text: chunk,
-            ...(threadTs !== undefined ? { thread_ts: threadTs } : {}),
-            ...identityOverrides,
-          });
+          await this.postMessageWithIdentityFallback(
+            client,
+            {
+              channel: channelId,
+              text: chunk,
+              ...(threadTs !== undefined ? { thread_ts: threadTs } : {}),
+            },
+            identityOverrides,
+          );
           continue;
         }
 
@@ -487,14 +507,45 @@ ${originalMessage.text}`,
     }
   }
 
+  private async postMessageWithIdentityFallback(
+    client: WebClient,
+    payload: Record<string, unknown>,
+    identityOverrides: {
+      username?: string;
+      icon_emoji?: string;
+    },
+  ): Promise<void> {
+    if (!hasIdentityOverrides(identityOverrides)) {
+      await client.chat.postMessage(payload as any);
+      return;
+    }
+
+    try {
+      await client.chat.postMessage({
+        ...(payload as Record<string, unknown>),
+        ...identityOverrides,
+      } as any);
+    } catch (error) {
+      if (!isIdentityOverrideRejected(error)) {
+        throw error;
+      }
+
+      this.logger.warn('Slack identity override rejected; retrying with default bot profile', {
+        slackError: extractSlackErrorCode(error),
+      });
+
+      await client.chat.postMessage(payload as any);
+    }
+  }
+
   private getMessageIdentityOverrides(
-    agent?: Pick<AgentDefinition, 'displayName' | 'slackDisplayName' | 'slackIcon'>,
+    agent?: Pick<AgentDefinition, 'slackDisplayName' | 'slackIcon'>,
   ): {
     username?: string;
     icon_emoji?: string;
   } {
-    const username = agent?.slackDisplayName ?? agent?.displayName;
-    const iconEmoji = agent?.slackIcon;
+    const username = normalizeSlackUsername(agent?.slackDisplayName);
+    const iconEmoji = normalizeSlackIconEmoji(agent?.slackIcon);
 
     return {
       ...(username !== undefined ? { username } : {}),
@@ -552,6 +603,72 @@ function splitMessage(text: string, maxLength: number): string[] {
   return chunks;
 }
 
+function hasIdentityOverrides(overrides: {
+  username?: string;
+  icon_emoji?: string;
+}): boolean {
+  return overrides.username !== undefined || overrides.icon_emoji !== undefined;
+}
+
+function normalizeSlackUsername(value: string | undefined): string | undefined {
+  if (value === undefined) {
+    return undefined;
+  }
+
+  const trimmed = value.trim();
+  if (trimmed.length === 0) {
+    return undefined;
+  }
+
+  // Remove control characters to avoid invalid payloads and log/header injection.
+  const sanitized = trimmed.replace(/[\u0000-\u001F\u007F]/g, '');
+  if (sanitized.length === 0) {
+    return undefined;
+  }
+
+  return sanitized.slice(0, SLACK_MAX_USERNAME_LENGTH);
+}
+
+function normalizeSlackIconEmoji(value: string | undefined): string | undefined {
+  if (value === undefined) {
+    return undefined;
+  }
+
+  const trimmed = value.trim();
+  if (trimmed.length === 0) {
+    return undefined;
+  }
+
+  if (!SLACK_ICON_EMOJI_PATTERN.test(trimmed)) {
+    return undefined;
+  }
+
+  return trimmed;
+}
+
+function isIdentityOverrideRejected(error: unknown): boolean {
+  const code = extractSlackErrorCode(error);
+  if (code === undefined) {
+    return false;
+  }
+
+  return IDENTITY_OVERRIDE_RETRYABLE_ERRORS.has(code);
+}
+
+function extractSlackErrorCode(error: unknown): string | undefined {
+  if (typeof error !== 'object' || error === null) {
+    return undefined;
+  }
+
+  const data = (error as { data?: unknown }).data;
+  if (typeof data !== 'object' || data === null) {
+    return undefined;
+  }
+
+  const code = (data as { error?: unknown }).error;
+  return typeof code === 'string' ? code : undefined;
+}
+
 function normalizeEvent(raw: Record<string, unknown>, type: string): SlackMessageEvent {
   const text = asOptionalString(raw.text);
   const user = asOptionalString(raw.user);
@@ -593,3 +710,15 @@ function parseMentionedBotUserId(text: string | undefined): string | undefined {
 function asOptionalString(value: unknown): string | undefined {
   return typeof value === 'string' ? value : undefined;
 }
+
+const IDENTITY_OVERRIDE_RETRYABLE_ERRORS = new Set([
+  'invalid_arg_name',
+  'invalid_arg_value',
+  'invalid_arguments',
+  'missing_scope',
+  'not_allowed_token_type',
+  'restricted_action',
+]);
+
+const SLACK_ICON_EMOJI_PATTERN = /^:[a-zA-Z0-9_+-]+:$/;
+const SLACK_MAX_USERNAME_LENGTH = 80;

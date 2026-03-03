@@ -9,7 +9,7 @@ export interface Agent {
   slackUsers: string[];
   heartbeat?: { enabled: boolean; intervalMin: number; prompt?: string };
   cron?: { schedule: string; prompt: string }[];
-  status: "idle" | "running" | "disabled";
+  status: "idle" | "running" | "disabled" | "error";
   enabled: boolean;
   limits?: { maxConcurrentSessions?: number; dailyTokenLimit?: number; maxMessageLength?: number };
   reactionTriggers?: string[];
@@ -40,6 +40,35 @@ export interface DailyUsage {
   outputTokens: number;
 }
 
+export interface AgentSessionSummary {
+  sessionId: string;
+  fileName: string;
+  createdAt: string;
+  modifiedAt: string;
+  messageCount: number;
+}
+
+export interface AgentSessionMessage {
+  role: "user" | "assistant";
+  content: string;
+  timestamp: string;
+}
+
+export interface AgentSessionDetail extends AgentSessionSummary {
+  messages: AgentSessionMessage[];
+}
+
+interface AgentEnvelope {
+  agent: Agent;
+}
+
+interface UsagePeriod {
+  period: string;
+  inputTokens: number;
+  outputTokens: number;
+  totalTokens: number;
+}
+
 async function api<T>(path: string, init?: RequestInit): Promise<T> {
   const res = await fetch(path, {
     ...init,
@@ -54,9 +83,10 @@ async function api<T>(path: string, init?: RequestInit): Promise<T> {
 }
 
 export const fetchAgents = () => api<{agents: Agent[]}>("/api/agents").then(r => r.agents ?? []);
-export const fetchAgent = (id: string) => api<Agent>(`/api/agents/${id}`);
+export const fetchAgent = (id: string) =>
+  api<AgentEnvelope>(`/api/agents/${id}`).then((r) => r.agent);
 export const createAgent = (data: CreateAgentInput) =>
-  api<Agent>("/api/agents", { method: "POST", body: JSON.stringify(data) });
+  api<AgentEnvelope>("/api/agents", { method: "POST", body: JSON.stringify(data) }).then((r) => r.agent);
 export const updateAgent = (id: string, data: Partial<Agent>) => {
   const payload: Record<string, unknown> = { ...data };
   if (payload.slackDisplayName === "") {
@@ -65,13 +95,21 @@ export const updateAgent = (id: string, data: Partial<Agent>) => {
   if (payload.slackIcon === "") {
     payload.slackIcon = null;
   }
-  return api<Agent>(`/api/agents/${id}`, { method: "PUT", body: JSON.stringify(payload) });
+  return api<AgentEnvelope>(`/api/agents/${id}`, { method: "PUT", body: JSON.stringify(payload) })
+    .then((r) => r.agent);
 };
 export const deleteAgent = (id: string) =>
   api<void>(`/api/agents/${id}`, { method: "DELETE" });
 export const fetchHealth = () => api<HealthInfo>("/api/health");
 export const fetchAgentUsage = (id: string) =>
-  api<{ daily: DailyUsage[] }>(`/api/agents/${id}/usage`);
+  api<{ usage: UsagePeriod[] }>(`/api/agents/${id}/usage`)
+    .then((r) => ({
+      daily: (r.usage ?? []).map((item) => ({
+        date: item.period,
+        inputTokens: item.inputTokens,
+        outputTokens: item.outputTokens,
+      })),
+    }));
 export const fetchAgentsMd = (id: string) =>
   api<{ content: string }>(`/api/agents/${id}/agents-md`);
 export const updateAgentsMd = (id: string, content: string) =>
@@ -79,3 +117,10 @@ export const updateAgentsMd = (id: string, content: string) =>
     method: "PUT",
     body: JSON.stringify({ content }),
   });
+export const fetchAgentSessions = (id: string) =>
+  api<{ sessions: AgentSessionSummary[] }>(`/api/agents/${id}/sessions`)
+    .then((r) => r.sessions ?? []);
+export const fetchAgentSession = (id: string, sessionId: string) =>
+  api<{ session: AgentSessionDetail }>(
+    `/api/agents/${id}/sessions/${encodeURIComponent(sessionId)}`
+  ).then((r) => r.session);

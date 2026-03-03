@@ -92,6 +92,7 @@ export function validateAppConfig(config: unknown): AppConfig {
         session.autoSummaryOnDispose,
         'session.autoSummaryOnDispose',
       ),
+      ttlDays: requireNonNegativeNumber(session.ttlDays ?? 30, 'session.ttlDays'),
     },
   };
 }
@@ -144,4 +145,12 @@ function requireBoolean(value: unknown, pathLabel: string): boolean {
   }
 
   throw new ConfigValidationError(`${pathLabel} must be a boolean`);
+}
+
+function requireNonNegativeNumber(value: unknown, pathLabel: string): number {
+  const parsed = requireNumber(value, pathLabel);
+  if (parsed < 0) {
+    throw new ConfigValidationError(`${pathLabel} must be greater than or equal to 0`);
+  }
+  return parsed;
 }

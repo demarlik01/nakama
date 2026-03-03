@@ -1,3 +1,6 @@
+import { readdir, rm, stat } from 'node:fs/promises';
+import path from 'node:path';
+
 import type { Message } from '@mariozechner/pi-ai';
 import { getModel } from '@mariozechner/pi-ai';
 import {
@@ -21,6 +24,7 @@ import type { AgentRegistry } from './registry.js';
 import type { UsageTracker } from './usage.js';
 import type { SSEManager } from '../api/sse.js';
 import type { Notifier } from './notifier.js';
+import { getAgentSessionDir } from './session-files.js';
 
 interface QueuedMessage {
   message: string;
@@ -37,8 +41,12 @@ interface SessionRuntime {
   piSession?: AgentSession;
 }
 
+const SESSION_CLEANUP_INTERVAL_MS = 6 * 60 * 60 * 1000;
+
 export class SessionManager {
   private readonly sessions = new Map<string, SessionRuntime>();
+  private readonly cleanupTimer?: NodeJS.Timeout;
+  private lastCleanupAt = 0;
 
   private sseManager?: SSEManager;
   private notifier?: Notifier;
@@ -48,7 +56,18 @@ export class SessionManager {
     private readonly config: AppConfig,
     private readonly logger: Logger = createLogger('SessionManager'),
     private readonly usageTracker?: UsageTracker,
-  ) {}
+  ) {
+    if (this.config.session.ttlDays > 0) {
+      this.cleanupTimer = setInterval(() => {
+        this.maybeCleanupExpiredSessions();
+      }, SESSION_CLEANUP_INTERVAL_MS);
+      this.cleanupTimer.unref?.();
+      this.registry.on('agent:added', () => {
+        this.maybeCleanupExpiredSessions();
+      });
+      this.maybeCleanupExpiredSessions();
+    }
+  }
 
   setSSEManager(sse: SSEManager): void {
     this.sseManager = sse;
@@ -67,6 +86,8 @@ export class SessionManager {
     if (agent === undefined) {
       throw new Error(`Agent not found: ${agentId}`);
     }
+
+    this.maybeCleanupExpiredSessions();
 
     const runtime = this.ensureSession(agent, context);
 
@@ -276,6 +297,7 @@ export class SessionManager {
     const systemPrompt = await buildSystemPrompt(agent);
     const modelSpec = agent.model ?? this.config.llm.defaultModel;
     const [provider, modelId] = parseModelSpec(modelSpec, this.config.llm.provider);
+    const sessionDir = getAgentSessionDir(agent);
 
     const model = getModel(provider as any, modelId as any);
 
@@ -283,7 +305,7 @@ export class SessionManager {
       cwd: agent.workspacePath,
       model,
       tools: codingTools,
-      sessionManager: PiSessionManager.inMemory(agent.workspacePath),
+      sessionManager: PiSessionManager.continueRecent(agent.workspacePath, sessionDir),
     });
 
     session.agent.setSystemPrompt(systemPrompt);
@@ -364,6 +386,100 @@ export class SessionManager {
 
     return extractTextFromMessage(lastMessage);
   }
+
+  private async cleanupExpiredSessions(agents: AgentDefinition[] = this.registry.getAll()): Promise<void> {
+    if (this.config.session.ttlDays <= 0) {
+      return;
+    }
+
+    const ttlMs = this.config.session.ttlDays * 24 * 60 * 60 * 1000;
+    const cutoff = Date.now() - ttlMs;
+    const activeSessionFiles = this.getActiveSessionFilePaths();
+
+    await Promise.all(
+      agents.map(async (agent) => {
+        const sessionDir = getAgentSessionDir(agent);
+        let entries: string[];
+
+        try {
+          entries = await readdir(sessionDir);
+        } catch (error: unknown) {
+          if (hasErrorCode(error, 'ENOENT')) {
+            return;
+          }
+          throw error;
+        }
+
+        await Promise.all(
+          entries
+            .filter((name) => name.endsWith('.jsonl'))
+            .map(async (name) => {
+              const filePath = path.join(sessionDir, name);
+              const resolvedPath = path.resolve(filePath);
+              if (activeSessionFiles.has(resolvedPath)) {
+                return;
+              }
+
+              try {
+                const fileStat = await stat(filePath);
+                if (fileStat.mtime.getTime() >= cutoff) {
+                  return;
+                }
+
+                await rm(filePath, { force: true });
+                this.logger.info('Expired session file removed', {
+                  agentId: agent.id,
+                  fileName: name,
+                  ttlDays: this.config.session.ttlDays,
+                });
+              } catch (error: unknown) {
+                if (hasErrorCode(error, 'ENOENT')) {
+                  return;
+                }
+                throw error;
+              }
+            }),
+        );
+      }),
+    );
+  }
+
+  private getActiveSessionFilePaths(): Set<string> {
+    const files = new Set<string>();
+
+    for (const runtime of this.sessions.values()) {
+      const sessionFile = runtime.piSession?.sessionFile;
+      if (typeof sessionFile !== 'string' || sessionFile.length === 0) {
+        continue;
+      }
+      files.add(path.resolve(sessionFile));
+    }
+
+    return files;
+  }
+
+  private maybeCleanupExpiredSessions(): void {
+    if (this.config.session.ttlDays <= 0) {
+      return;
+    }
+
+    const agents = this.registry.getAll();
+    if (agents.length === 0) {
+      return;
+    }
+
+    const now = Date.now();
+    if (now - this.lastCleanupAt < SESSION_CLEANUP_INTERVAL_MS) {
+      return;
+    }
+
+    this.lastCleanupAt = now;
+    void this.cleanupExpiredSessions(agents).catch((error: unknown) => {
+      this.logger.error('Failed to clean up expired session files', {
+        error: error instanceof Error ? error.message : String(error),
+      });
+    });
+  }
 }
 
 function parseModelSpec(spec: string, fallbackProvider: string): [string, string] {
@@ -405,4 +521,11 @@ export function isSessionRunning(state: SessionState): boolean {
 
 export function isTerminalSessionStatus(status: SessionStatus): boolean {
   return status === 'disposed' || status === 'error';
+}
+
+function hasErrorCode(error: unknown, expectedCode: string): boolean {
+  if (typeof error !== 'object' || error === null || !('code' in error)) {
+    return false;
+  }
+  return (error as { code?: unknown }).code === expectedCode;
 }
