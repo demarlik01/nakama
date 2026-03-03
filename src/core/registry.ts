@@ -122,12 +122,13 @@ export class AgentRegistry extends EventEmitter<AgentRegistryEvents> {
     await mkdir(workspacePath, { recursive: false });
 
     await Promise.all([
-      writeFile(path.join(workspacePath, AGENTS_MD_FILE), normalizeFile(params.agentsMd), 'utf8'),
+      writeFile(path.join(workspacePath, AGENTS_MD_FILE), normalizeFile(resolveAgentsMdContent(params)), 'utf8'),
       writeJson(path.join(workspacePath, AGENT_JSON_FILE), {
         displayName: params.displayName,
         slackDisplayName: params.slackDisplayName,
         slackIcon: params.slackIcon,
         description: params.description,
+        errorNotificationChannel: params.errorNotificationChannel,
         slackChannels: params.slackChannels,
         slackUsers: params.slackUsers,
         model: params.model,
@@ -167,6 +168,7 @@ export class AgentRegistry extends EventEmitter<AgentRegistryEvents> {
       slackDisplayName: existing.slackDisplayName,
       slackIcon: existing.slackIcon,
       description: existing.description,
+      errorNotificationChannel: existing.errorNotificationChannel,
       slackChannels: existing.slackChannels,
       slackUsers: existing.slackUsers,
       slackBotUserId: existing.slackBotUserId,
@@ -181,12 +183,19 @@ export class AgentRegistry extends EventEmitter<AgentRegistryEvents> {
 
     const hasSlackDisplayName = Object.prototype.hasOwnProperty.call(params, 'slackDisplayName');
     const hasSlackIcon = Object.prototype.hasOwnProperty.call(params, 'slackIcon');
+    const hasErrorNotificationChannel = Object.prototype.hasOwnProperty.call(
+      params,
+      'errorNotificationChannel',
+    );
 
     const mergedMetadata: AgentMetadata = {
       displayName: params.displayName ?? currentMetadata.displayName,
       slackDisplayName: hasSlackDisplayName ? params.slackDisplayName : currentMetadata.slackDisplayName,
       slackIcon: hasSlackIcon ? params.slackIcon : currentMetadata.slackIcon,
       description: params.description ?? currentMetadata.description,
+      errorNotificationChannel: hasErrorNotificationChannel
+        ? params.errorNotificationChannel
+        : currentMetadata.errorNotificationChannel,
       slackChannels: params.slackChannels ?? currentMetadata.slackChannels,
       slackUsers: params.slackUsers ?? currentMetadata.slackUsers,
       slackBotUserId: params.slackBotUserId ?? currentMetadata.slackBotUserId,
@@ -364,6 +373,7 @@ export class AgentRegistry extends EventEmitter<AgentRegistryEvents> {
       slackDisplayName: metadata.slackDisplayName,
       slackIcon: metadata.slackIcon,
       description: metadata.description,
+      errorNotificationChannel: metadata.errorNotificationChannel,
       workspacePath,
       slackChannels: metadata.slackChannels,
       slackUsers: metadata.slackUsers,
@@ -393,6 +403,29 @@ function normalizeAgentId(input: string): string {
 
 function normalizeFile(content: string): string {
   return content.endsWith('\n') ? content : `${content}\n`;
+}
+
+function resolveAgentsMdContent(params: CreateAgentParams): string {
+  if (typeof params.agentsMd === 'string' && params.agentsMd.trim() !== '') {
+    return params.agentsMd;
+  }
+
+  const description =
+    typeof params.description === 'string' && params.description.trim() !== ''
+      ? params.description.trim()
+      : `You are ${params.displayName}.`;
+
+  return [
+    `# ${params.displayName}`,
+    '',
+    '## Role',
+    description,
+    '',
+    '## Guidelines',
+    '- Follow AGENTS.md and repository conventions.',
+    '- Ask for clarification when requirements are ambiguous.',
+    '- Keep responses concise and actionable.',
+  ].join('\n');
 }
 
 async function exists(filePath: string): Promise<boolean> {
@@ -426,6 +459,10 @@ async function readJsonIfExists(filePath: string): Promise<AgentMetadata | null>
       slackDisplayName: asOptionalString(parsed.slackDisplayName, 'slackDisplayName'),
       slackIcon: asOptionalString(parsed.slackIcon, 'slackIcon'),
       description: asOptionalString(parsed.description, 'description'),
+      errorNotificationChannel: asOptionalString(
+        parsed.errorNotificationChannel,
+        'errorNotificationChannel',
+      ),
       slackChannels: asStringArray(parsed.slackChannels, 'slackChannels'),
       slackUsers: asStringArray(parsed.slackUsers, 'slackUsers'),
       enabled: asBoolean(parsed.enabled, 'enabled'),

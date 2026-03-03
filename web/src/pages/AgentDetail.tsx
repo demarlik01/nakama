@@ -5,8 +5,8 @@ import {
   type AgentSessionDetail,
   type AgentSessionMessage,
   type AgentSessionSummary,
-  type DailyUsage,
   type SessionUsageSummary,
+  type UsageBucket,
   fetchAgent,
   fetchAgentSession,
   fetchAgentSessionUsage,
@@ -42,7 +42,8 @@ export function AgentDetail() {
   const [agent, setAgent] = useState<Agent | null>(null);
   const [form, setForm] = useState<Partial<Agent>>({});
   const [mdContent, setMdContent] = useState("");
-  const [usage, setUsage] = useState<DailyUsage[]>([]);
+  const [usage, setUsage] = useState<UsageBucket[]>([]);
+  const [usagePeriod, setUsagePeriod] = useState<"day" | "week">("day");
   const [sessions, setSessions] = useState<AgentSessionSummary[]>([]);
   const [selectedSessionId, setSelectedSessionId] = useState<string | null>(null);
   const [selectedSession, setSelectedSession] = useState<AgentSessionDetail | null>(null);
@@ -56,16 +57,14 @@ export function AgentDetail() {
   const load = useCallback(async () => {
     if (!id) return;
     try {
-      const [a, md, u, persistedSessions] = await Promise.all([
+      const [a, md, persistedSessions] = await Promise.all([
         fetchAgent(id),
         fetchAgentsMd(id).catch(() => ({ content: "" })),
-        fetchAgentUsage(id).catch(() => ({ daily: [] })),
         fetchAgentSessions(id).catch(() => []),
       ]);
       setAgent(a);
       setForm(a);
       setMdContent(md.content);
-      setUsage(u.daily);
       setSessions(persistedSessions);
       setSelectedSessionId(null);
       setSelectedSession(null);
@@ -81,6 +80,24 @@ export function AgentDetail() {
   }, [id]);
 
   useEffect(() => { load(); }, [load]);
+
+  const loadUsage = useCallback(async () => {
+    if (!id) {
+      return;
+    }
+
+    try {
+      const values = await fetchAgentUsage(id, usagePeriod);
+      setUsage(values);
+    } catch {
+      setUsage([]);
+      toast.error("Failed to load usage");
+    }
+  }, [id, usagePeriod]);
+
+  useEffect(() => {
+    void loadUsage();
+  }, [loadUsage]);
 
   const handleSSE = (event: SSEMessage) => {
     if (event.type === "log" && (event.data.agentId === id || !event.data.agentId)) {
@@ -210,7 +227,7 @@ export function AgentDetail() {
     timelineEl.scrollTop = timelineEl.scrollHeight;
   }, [selectedSessionId, loadingSession, sessionMessages.length]);
 
-  const maxTokens = Math.max(...usage.map((d) => d.inputTokens + d.outputTokens), 1);
+  const maxTokens = Math.max(...usage.map((d) => d.totalTokens), 1);
 
   if (loading) return <div className="text-muted-foreground">Loading...</div>;
   if (!agent) return <div className="text-destructive">Agent not found</div>;
@@ -296,6 +313,19 @@ export function AgentDetail() {
                 }
               />
             </div>
+            <div className="grid gap-1.5">
+              <Label>Error Notification Channel</Label>
+              <Input
+                value={form.errorNotificationChannel ?? ""}
+                onChange={(e) =>
+                  setForm({
+                    ...form,
+                    errorNotificationChannel: e.target.value,
+                  })
+                }
+                placeholder="C01234567"
+              />
+            </div>
           </div>
 
             {/* Resource Limits */}
@@ -369,14 +399,35 @@ export function AgentDetail() {
         </TabsContent>
 
         <TabsContent value="usage" className="mt-4">
-          {usage.length === 0 ? (
-            <p className="text-muted-foreground">No usage data yet.</p>
-          ) : (
-            <div className="space-y-2">
-              <div className="text-sm text-muted-foreground mb-2">Daily token usage</div>
+          <div className="space-y-2">
+            <div className="flex items-center justify-between gap-2 mb-2">
+              <div className="text-sm text-muted-foreground">
+                {usagePeriod === "day" ? "Daily token usage" : "Weekly token usage"}
+              </div>
+              <div className="flex items-center gap-1">
+                <Button
+                  variant={usagePeriod === "day" ? "default" : "outline"}
+                  size="xs"
+                  onClick={() => setUsagePeriod("day")}
+                >
+                  Day
+                </Button>
+                <Button
+                  variant={usagePeriod === "week" ? "default" : "outline"}
+                  size="xs"
+                  onClick={() => setUsagePeriod("week")}
+                >
+                  Week
+                </Button>
+              </div>
+            </div>
+            {usage.length === 0 ? (
+              <p className="text-muted-foreground">No usage data yet.</p>
+            ) : (
+              <>
               {usage.map((d) => (
-                <div key={d.date} className="flex items-center gap-2 text-xs">
-                  <span className="w-20 text-muted-foreground">{d.date}</span>
+                <div key={d.period} className="flex items-center gap-2 text-xs">
+                  <span className="w-24 text-muted-foreground">{d.period}</span>
                   <div className="flex-1 flex h-5 rounded overflow-hidden bg-muted">
                     <div
                       className="bg-chart-1 h-full"
@@ -390,7 +441,7 @@ export function AgentDetail() {
                     />
                   </div>
                   <span className="w-28 text-right">
-                    {(d.inputTokens + d.outputTokens).toLocaleString()}
+                    {d.totalTokens.toLocaleString()}
                   </span>
                 </div>
               ))}
@@ -402,8 +453,9 @@ export function AgentDetail() {
                   <span className="w-3 h-3 rounded bg-chart-2 inline-block" /> Output
                 </span>
               </div>
-            </div>
-          )}
+              </>
+            )}
+          </div>
         </TabsContent>
 
         <TabsContent value="sessions" className="mt-4">
@@ -520,9 +572,9 @@ export function AgentDetail() {
           </DialogTrigger>
           <DialogContent>
             <DialogHeader>
-              <DialogTitle>Delete Agent</DialogTitle>
+              <DialogTitle>에이전트 삭제</DialogTitle>
               <DialogDescription>
-                Are you sure you want to delete "{agent.displayName}"? This cannot be undone.
+                정말 삭제하시겠습니까? "{agent.displayName}" 에이전트는 아카이브 처리됩니다.
               </DialogDescription>
             </DialogHeader>
             <DialogFooter>

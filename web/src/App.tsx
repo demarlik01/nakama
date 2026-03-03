@@ -3,7 +3,7 @@ import { Toaster } from "@/components/ui/sonner";
 import { Layout } from "@/components/Layout";
 import { Dashboard } from "@/pages/Dashboard";
 import { AgentDetail } from "@/pages/AgentDetail";
-import { NewAgent } from "@/pages/NewAgent";
+import { AgentCreate } from "@/pages/AgentCreate";
 import { Health } from "@/pages/Health";
 import { Settings } from "@/pages/Settings";
 import { Sessions } from "@/pages/Sessions";
@@ -15,7 +15,7 @@ export default function App() {
         <Route element={<Layout />}>
           <Route path="/" element={<Dashboard />} />
           <Route path="/sessions" element={<Sessions />} />
-          <Route path="/agents/new" element={<NewAgent />} />
+          <Route path="/agents/new" element={<AgentCreate />} />
           <Route path="/agents/:id" element={<AgentDetail />} />
           <Route path="/health" element={<Health />} />
           <Route path="/settings" element={<Settings />} />

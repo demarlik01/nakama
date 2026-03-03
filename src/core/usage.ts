@@ -130,6 +130,14 @@ export class UsageTracker {
     return rows;
   }
 
+  getDailyUsage(agentId: string, sessionId?: string): PeriodUsage[] {
+    return this.getUsage(agentId, 'day', sessionId);
+  }
+
+  getWeeklyUsage(agentId: string, sessionId?: string): PeriodUsage[] {
+    return this.getUsage(agentId, 'week', sessionId);
+  }
+
   getSummary(): UsageSummary[] {
     const rows = this.db
       .prepare(

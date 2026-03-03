@@ -4,6 +4,7 @@ export interface Agent {
   slackDisplayName?: string;
   slackIcon?: string;
   description: string;
+  errorNotificationChannel?: string;
   model: string;
   slackChannels: string[];
   slackUsers: string[];
@@ -20,10 +21,11 @@ export interface CreateAgentInput {
   displayName: string;
   slackDisplayName?: string;
   slackIcon?: string;
-  description: string;
+  description?: string;
+  errorNotificationChannel?: string;
   model: string;
   slackChannels: string[];
-  slackUsers: string[];
+  slackUsers?: string[];
   agentsMd?: string;
 }
 
@@ -34,10 +36,11 @@ export interface HealthInfo {
   uptimeSec: number;
 }
 
-export interface DailyUsage {
-  date: string;
+export interface UsageBucket {
+  period: string;
   inputTokens: number;
   outputTokens: number;
+  totalTokens: number;
 }
 
 export interface AgentSessionSummary {
@@ -103,21 +106,28 @@ export const updateAgent = (id: string, data: Partial<Agent>) => {
   if (payload.slackIcon === "") {
     payload.slackIcon = null;
   }
+  if (payload.errorNotificationChannel === "") {
+    payload.errorNotificationChannel = null;
+  }
   return api<AgentEnvelope>(`/api/agents/${id}`, { method: "PUT", body: JSON.stringify(payload) })
     .then((r) => r.agent);
 };
 export const deleteAgent = (id: string) =>
   api<void>(`/api/agents/${id}`, { method: "DELETE" });
 export const fetchHealth = () => api<HealthInfo>("/api/health");
-export const fetchAgentUsage = (id: string) =>
-  api<{ usage: UsagePeriod[] }>(`/api/agents/${id}/usage`)
-    .then((r) => ({
-      daily: (r.usage ?? []).map((item) => ({
-        date: item.period,
+export const fetchAgentUsage = (
+  id: string,
+  period: "day" | "week" | "month" = "day"
+) =>
+  api<{ usage: UsagePeriod[] }>(`/api/agents/${id}/usage?period=${encodeURIComponent(period)}`)
+    .then((r) =>
+      (r.usage ?? []).map((item) => ({
+        period: item.period,
         inputTokens: item.inputTokens,
         outputTokens: item.outputTokens,
-      })),
-    }));
+        totalTokens: item.totalTokens,
+      }))
+    );
 export const fetchAgentsMd = (id: string) =>
   api<{ content: string }>(`/api/agents/${id}/agents-md`);
 export const updateAgentsMd = (id: string, content: string) =>

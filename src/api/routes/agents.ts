@@ -343,10 +343,14 @@ function asCreateAgentParams(value: unknown): CreateAgentParams {
     slackDisplayName: asOptionalString(body.slackDisplayName, 'slackDisplayName'),
     slackIcon: asOptionalString(body.slackIcon, 'slackIcon'),
     description: asOptionalString(body.description, 'description'),
-    agentsMd: asString(body.agentsMd, 'agentsMd'),
-    slackChannels: asStringArray(body.slackChannels, 'slackChannels'),
-    slackUsers: asStringArray(body.slackUsers, 'slackUsers'),
-    model: asOptionalString(body.model, 'model'),
+    errorNotificationChannel: asOptionalString(
+      body.errorNotificationChannel,
+      'errorNotificationChannel',
+    ),
+    agentsMd: asOptionalString(body.agentsMd, 'agentsMd'),
+    slackChannels: asNonEmptyStringArray(body.slackChannels, 'slackChannels'),
+    slackUsers: asOptionalStringArray(body.slackUsers, 'slackUsers') ?? [],
+    model: asString(body.model, 'model'),
   };
 }
 
@@ -366,6 +370,12 @@ function asUpdateAgentParams(value: unknown): UpdateAgentParams {
   }
   if ('description' in body) {
     payload.description = asOptionalString(body.description, 'description');
+  }
+  if ('errorNotificationChannel' in body) {
+    payload.errorNotificationChannel = asOptionalString(
+      body.errorNotificationChannel,
+      'errorNotificationChannel',
+    );
   }
   if ('slackChannels' in body) {
     payload.slackChannels = asStringArray(body.slackChannels, 'slackChannels');
@@ -471,6 +481,21 @@ function asStringArray(value: unknown, label: string): string[] {
   }
 
   return result;
+}
+
+function asOptionalStringArray(value: unknown, label: string): string[] | undefined {
+  if (value === undefined || value === null) {
+    return undefined;
+  }
+  return asStringArray(value, label);
+}
+
+function asNonEmptyStringArray(value: unknown, label: string): string[] {
+  const items = asStringArray(value, label);
+  if (items.length === 0) {
+    throw new Error(`${label} must contain at least one item`);
+  }
+  return items;
 }
 
 function respondError(res: Response, statusCode: number, error: unknown): void {

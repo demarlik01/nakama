@@ -6,6 +6,7 @@ export interface ErrorNotification {
   agentName: string;
   error: string;
   timestamp: Date;
+  channel?: string;
 }
 
 /**
@@ -34,7 +35,8 @@ export class Notifier {
   }
 
   async notifyError(notification: ErrorNotification): Promise<void> {
-    if (!this.adminSlackUser || !this.slackPostMessage) {
+    const channel = notification.channel ?? this.adminSlackUser;
+    if (!channel || !this.slackPostMessage) {
       this.logger.debug('Error notification skipped (not configured)', {
         agentId: notification.agentId,
       });
@@ -49,8 +51,11 @@ export class Notifier {
     ].join('\n');
 
     try {
-      await this.slackPostMessage(this.adminSlackUser, message);
-      this.logger.info('Error notification sent', { agentId: notification.agentId });
+      await this.slackPostMessage(channel, message);
+      this.logger.info('Error notification sent', {
+        agentId: notification.agentId,
+        channel,
+      });
     } catch (err) {
       this.logger.error('Failed to send error notification', {
         error: err instanceof Error ? err.message : String(err),

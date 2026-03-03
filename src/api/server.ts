@@ -204,13 +204,17 @@ export class ApiServer {
         res.status(400).json({ error: 'Invalid period. Use day|week|month' });
         return;
       }
-      const usage = this.deps.usageTracker.getUsage(req.params.id, period as 'day' | 'week' | 'month');
+      const usage = period === 'day'
+        ? this.deps.usageTracker.getDailyUsage(req.params.id)
+        : period === 'week'
+          ? this.deps.usageTracker.getWeeklyUsage(req.params.id)
+          : this.deps.usageTracker.getUsage(req.params.id, 'month');
 
       // Include limit utilization if limits are configured
       const limits = agent.limits;
       let utilization: Record<string, unknown> | undefined;
       if (limits?.dailyTokenLimit) {
-        const todayUsage = this.deps.usageTracker.getUsage(req.params.id, 'day');
+        const todayUsage = this.deps.usageTracker.getDailyUsage(req.params.id);
         const today = todayUsage[todayUsage.length - 1];
         const todayTokens = today ? today.totalTokens : 0;
         utilization = {

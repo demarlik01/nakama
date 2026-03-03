@@ -31,6 +31,7 @@ export interface AgentDefinition {
   slackDisplayName?: string;
   slackIcon?: string;
   description?: string;
+  errorNotificationChannel?: string;
   workspacePath: string;
   slackChannels: string[];
   slackUsers: string[];
@@ -64,6 +65,7 @@ export interface AgentMetadata {
   slackDisplayName?: string;
   slackIcon?: string;
   description?: string;
+  errorNotificationChannel?: string;
   slackChannels: string[];
   slackUsers: string[];
   slackBotUserId?: string;
@@ -82,7 +84,8 @@ export interface CreateAgentParams {
   slackDisplayName?: string;
   slackIcon?: string;
   description?: string;
-  agentsMd: string;
+  errorNotificationChannel?: string;
+  agentsMd?: string;
   slackChannels: string[];
   slackUsers: string[];
   model?: string;
@@ -99,6 +102,7 @@ export interface UpdateAgentParams {
   slackDisplayName?: string;
   slackIcon?: string;
   description?: string;
+  errorNotificationChannel?: string;
   slackChannels?: string[];
   slackUsers?: string[];
   slackBotUserId?: string;

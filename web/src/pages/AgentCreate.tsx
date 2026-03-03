@@ -22,41 +22,43 @@ const MODELS = [
   "google/gemini-2.5-pro",
 ];
 
-export function NewAgent() {
+export function AgentCreate() {
   const navigate = useNavigate();
   const [form, setForm] = useState({
     id: "",
     displayName: "",
+    slackChannels: "",
+    model: MODELS[0],
+    description: "",
     slackDisplayName: "",
     slackIcon: "",
-    description: "",
-    model: MODELS[0],
-    slackChannels: "",
     slackUsers: "",
-    agentsMd: "# AGENTS.md\n\nDescribe your agent's behavior here.\n",
   });
   const [submitting, setSubmitting] = useState(false);
 
   const handleCreate = async () => {
-    if (!form.id || !form.displayName) {
-      toast.error("ID and Display Name are required");
+    const slackChannels = splitCommaSeparated(form.slackChannels);
+    const slackUsers = splitCommaSeparated(form.slackUsers);
+
+    if (!form.id.trim() || !form.displayName.trim() || !form.model.trim() || slackChannels.length === 0) {
+      toast.error("id, displayName, slackChannels, model은 필수입니다.");
       return;
     }
+
     setSubmitting(true);
     try {
       await createAgent({
-        id: form.id,
-        displayName: form.displayName,
+        id: form.id.trim(),
+        displayName: form.displayName.trim(),
+        model: form.model.trim(),
+        slackChannels,
+        description: form.description.trim() || undefined,
         slackDisplayName: form.slackDisplayName.trim() || undefined,
         slackIcon: form.slackIcon.trim() || undefined,
-        description: form.description,
-        model: form.model,
-        slackChannels: form.slackChannels.split(",").map((s) => s.trim()).filter(Boolean),
-        slackUsers: form.slackUsers.split(",").map((s) => s.trim()).filter(Boolean),
-        agentsMd: form.agentsMd,
+        slackUsers: slackUsers.length > 0 ? slackUsers : undefined,
       });
       toast.success("Agent created");
-      navigate(`/agents/${form.id}`);
+      navigate(`/agents/${form.id.trim()}`);
     } catch {
       toast.error("Failed to create agent");
     } finally {
@@ -66,39 +68,50 @@ export function NewAgent() {
 
   return (
     <div className="max-w-xl">
-      <h1 className="text-2xl font-bold mb-6">New Agent</h1>
+      <h1 className="text-2xl font-bold mb-6">Create Agent</h1>
       <div className="grid gap-4">
         <div className="grid gap-1.5">
-          <Label>ID (unique, lowercase)</Label>
+          <Label>ID *</Label>
           <Input
             value={form.id}
             onChange={(e) => setForm({ ...form, id: e.target.value })}
             placeholder="my-agent"
           />
         </div>
+
         <div className="grid gap-1.5">
-          <Label>Display Name</Label>
+          <Label>Display Name *</Label>
           <Input
             value={form.displayName}
             onChange={(e) => setForm({ ...form, displayName: e.target.value })}
           />
         </div>
+
         <div className="grid gap-1.5">
-          <Label>Slack Display Name (optional)</Label>
+          <Label>Slack Channels (comma-separated) *</Label>
           <Input
-            value={form.slackDisplayName}
-            onChange={(e) => setForm({ ...form, slackDisplayName: e.target.value })}
-            placeholder="Agent Bot Name"
+            value={form.slackChannels}
+            onChange={(e) => setForm({ ...form, slackChannels: e.target.value })}
+            placeholder="C01ABCDEF, C02HIJKLM"
           />
         </div>
+
         <div className="grid gap-1.5">
-          <Label>Slack Icon Emoji (optional)</Label>
-          <Input
-            value={form.slackIcon}
-            onChange={(e) => setForm({ ...form, slackIcon: e.target.value })}
-            placeholder=":robot_face:"
-          />
+          <Label>Model *</Label>
+          <Select value={form.model} onValueChange={(value) => setForm({ ...form, model: value })}>
+            <SelectTrigger>
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              {MODELS.map((model) => (
+                <SelectItem key={model} value={model}>
+                  {model}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
         </div>
+
         <div className="grid gap-1.5">
           <Label>Description</Label>
           <Textarea
@@ -106,47 +119,45 @@ export function NewAgent() {
             onChange={(e) => setForm({ ...form, description: e.target.value })}
           />
         </div>
+
         <div className="grid gap-1.5">
-          <Label>Model</Label>
-          <Select value={form.model} onValueChange={(v) => setForm({ ...form, model: v })}>
-            <SelectTrigger>
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              {MODELS.map((m) => (
-                <SelectItem key={m} value={m}>
-                  {m}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-        </div>
-        <div className="grid gap-1.5">
-          <Label>Slack Channels (comma-separated)</Label>
+          <Label>Slack Display Name</Label>
           <Input
-            value={form.slackChannels}
-            onChange={(e) => setForm({ ...form, slackChannels: e.target.value })}
+            value={form.slackDisplayName}
+            onChange={(e) => setForm({ ...form, slackDisplayName: e.target.value })}
+            placeholder="Agent Bot Name"
           />
         </div>
+
+        <div className="grid gap-1.5">
+          <Label>Slack Icon Emoji</Label>
+          <Input
+            value={form.slackIcon}
+            onChange={(e) => setForm({ ...form, slackIcon: e.target.value })}
+            placeholder=":robot_face:"
+          />
+        </div>
+
         <div className="grid gap-1.5">
           <Label>Slack Users (comma-separated)</Label>
           <Input
             value={form.slackUsers}
             onChange={(e) => setForm({ ...form, slackUsers: e.target.value })}
-          />
-        </div>
-        <div className="grid gap-1.5">
-          <Label>AGENTS.md</Label>
-          <Textarea
-            className="min-h-[200px] font-mono text-sm"
-            value={form.agentsMd}
-            onChange={(e) => setForm({ ...form, agentsMd: e.target.value })}
+            placeholder="U12345678, U87654321"
           />
         </div>
       </div>
+
       <Button className="mt-4" onClick={handleCreate} disabled={submitting}>
         {submitting ? "Creating..." : "Create Agent"}
       </Button>
     </div>
   );
+}
+
+function splitCommaSeparated(value: string): string[] {
+  return value
+    .split(",")
+    .map((item) => item.trim())
+    .filter((item) => item.length > 0);
 }

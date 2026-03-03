@@ -12,6 +12,7 @@ import { SlackGateway } from './slack/app.js';
 import { createLogger } from './utils/logger.js';
 import { UsageTracker } from './core/usage.js';
 import { Notifier } from './core/notifier.js';
+import { PiLlmProvider } from './core/llm/pi-provider.js';
 
 async function bootstrap(): Promise<void> {
   const logger = createLogger('Bootstrap');
@@ -25,7 +26,14 @@ async function bootstrap(): Promise<void> {
   const dataDir = path.resolve(workspacesRoot, '..');
   await import('fs/promises').then(fs => fs.mkdir(dataDir, { recursive: true }));
   const usageTracker = new UsageTracker(dataDir, logger.child('usage'));
-  const sessionManager = new SessionManager(registry, config, logger.child('session'), usageTracker);
+  const llmProvider = new PiLlmProvider(config.llm.provider);
+  const sessionManager = new SessionManager(
+    registry,
+    config,
+    logger.child('session'),
+    usageTracker,
+    llmProvider,
+  );
   const router = new MessageRouter(registry, sessionManager, logger.child('router'));
   const apiServer = new ApiServer(config, {
     usageTracker,

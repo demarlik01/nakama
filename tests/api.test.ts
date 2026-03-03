@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { mkdtempSync, writeFileSync, mkdirSync, rmSync, existsSync } from 'fs';
+import { mkdtempSync, writeFileSync, mkdirSync, rmSync, existsSync, readFileSync } from 'fs';
 import { join } from 'path';
 import { tmpdir } from 'os';
 import express from 'express';
@@ -60,8 +60,9 @@ describe('REST API - Agent CRUD', () => {
       id: 'new-agent',
       displayName: 'New Agent',
       agentsMd: '# New Agent',
-      slackChannels: [],
+      slackChannels: ['C123'],
       slackUsers: [],
+      model: 'anthropic/claude-sonnet-4-20250514',
     });
     expect(res.status).toBe(201);
 
@@ -108,14 +109,30 @@ describe('REST API - Agent CRUD', () => {
     expect(res.status).toBe(404);
   });
 
+  it('auto-generates AGENTS.md when omitted', async () => {
+    const res = await api('POST', '', {
+      id: 'auto-md-agent',
+      displayName: 'Auto MD Agent',
+      slackChannels: ['C123'],
+      slackUsers: [],
+      model: 'anthropic/claude-sonnet-4-20250514',
+    });
+    expect(res.status).toBe(201);
+
+    const agentsMd = readFileSync(join(tempDir, 'auto-md-agent', 'AGENTS.md'), 'utf8');
+    expect(agentsMd).toContain('# Auto MD Agent');
+    expect(agentsMd).toContain('## Role');
+  });
+
   it('updates agent via PATCH', async () => {
     // Create first
     await api('POST', '', {
       id: 'patch-agent',
       displayName: 'Before',
       agentsMd: '# Patch Agent',
-      slackChannels: [],
+      slackChannels: ['C123'],
       slackUsers: [],
+      model: 'anthropic/claude-sonnet-4-20250514',
     });
 
     const res = await api('PATCH', '/patch-agent', { displayName: 'After' });
@@ -129,8 +146,9 @@ describe('REST API - Agent CRUD', () => {
       id: 'del-agent',
       displayName: 'Delete Me',
       agentsMd: '# Delete Agent',
-      slackChannels: [],
+      slackChannels: ['C123'],
       slackUsers: [],
+      model: 'anthropic/claude-sonnet-4-20250514',
     });
 
     const res = await api('DELETE', '/del-agent');

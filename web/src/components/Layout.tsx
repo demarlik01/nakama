@@ -6,7 +6,7 @@ import { LayoutDashboard, PlusCircle, Activity, Settings2, Radio } from "lucide-
 const navItems = [
   { to: "/", label: "Dashboard", icon: LayoutDashboard },
   { to: "/sessions", label: "Sessions", icon: Radio },
-  { to: "/agents/new", label: "New Agent", icon: PlusCircle },
+  { to: "/agents/new", label: "Create Agent", icon: PlusCircle },
   { to: "/health", label: "Health", icon: Activity },
   { to: "/settings", label: "Settings", icon: Settings2 },
 ];

@@ -2,7 +2,6 @@ import { readdir, rm, stat } from 'node:fs/promises';
 import path from 'node:path';
 
 import type { Message } from '@mariozechner/pi-ai';
-import { getModel } from '@mariozechner/pi-ai';
 import {
   type AgentSession,
   type AgentSessionEvent,
@@ -25,6 +24,8 @@ import type { UsageTracker } from './usage.js';
 import type { SSEManager } from '../api/sse.js';
 import type { Notifier } from './notifier.js';
 import { getAgentSessionDir, listPersistedSessions } from './session-files.js';
+import { PiLlmProvider } from './llm/pi-provider.js';
+import type { LlmProvider } from './llm/provider.js';
 
 interface QueuedMessage {
   message: string;
@@ -50,6 +51,7 @@ export class SessionManager {
   private readonly cleanupTimer?: NodeJS.Timeout;
   private cleanupAgentAddedListener?: (agent: AgentDefinition) => void;
   private lastCleanupAt = 0;
+  private readonly llmProvider: LlmProvider;
 
   private sseManager?: SSEManager;
   private notifier?: Notifier;
@@ -59,7 +61,10 @@ export class SessionManager {
     private readonly config: AppConfig,
     private readonly logger: Logger = createLogger('SessionManager'),
     private readonly usageTracker?: UsageTracker,
+    llmProvider?: LlmProvider,
   ) {
+    this.llmProvider = llmProvider ?? new PiLlmProvider(this.config.llm.provider);
+
     if (this.config.session.ttlDays > 0) {
       this.cleanupTimer = setInterval(() => {
         this.maybeCleanupExpiredSessions();
@@ -358,6 +363,7 @@ export class SessionManager {
             agentName: agentDef?.displayName ?? agent.id,
             error: runtime.state.error ?? 'Unknown error',
             timestamp: new Date(),
+            channel: agentDef?.errorNotificationChannel ?? agent.errorNotificationChannel,
           });
         }
 
@@ -380,10 +386,9 @@ export class SessionManager {
 
     const systemPrompt = await buildSystemPrompt(agent);
     const modelSpec = agent.model ?? this.config.llm.defaultModel;
-    const [provider, modelId] = parseModelSpec(modelSpec, this.config.llm.provider);
+    const resolvedModel = this.llmProvider.resolveModel(modelSpec);
     const sessionDir = getAgentSessionDir(agent);
 
-    const model = getModel(provider as any, modelId as any);
     let sessionManager = PiSessionManager.continueRecent(agent.workspacePath, sessionDir);
 
     const persistedSessionFilePath = runtime.sessionFilePath;
@@ -404,7 +409,7 @@ export class SessionManager {
 
     const { session } = await createAgentSession({
       cwd: agent.workspacePath,
-      model,
+      model: resolvedModel.model,
       tools: codingTools,
       sessionManager,
     });
@@ -418,7 +423,8 @@ export class SessionManager {
 
     this.logger.info('Pi SDK session created', {
       agentId: agent.id,
-      model: modelSpec,
+      model: resolvedModel.modelSpec,
+      provider: resolvedModel.provider,
       sessionId: runtime.sessionId,
       promptChars: systemPrompt.length,
     });
@@ -617,14 +623,6 @@ export class SessionManager {
       });
     });
   }
-}
-
-function parseModelSpec(spec: string, fallbackProvider: string): [string, string] {
-  const slashIndex = spec.indexOf('/');
-  if (slashIndex > 0) {
-    return [spec.slice(0, slashIndex), spec.slice(slashIndex + 1)];
-  }
-  return [fallbackProvider, spec];
 }
 
 function resolveSessionIdFromFilePath(sessionFilePath: string | undefined): string | undefined {
