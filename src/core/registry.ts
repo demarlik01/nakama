@@ -12,14 +12,14 @@ import path from 'node:path';
 
 import { type FSWatcher, watch } from 'chokidar';
 
-import type {
-  AgentDefinition,
-  AgentMetadata,
-  AgentRegistryEvents,
-  CronJobConfig,
-  CreateAgentParams,
-  HeartbeatConfig,
-  UpdateAgentParams,
+import {
+  type AgentDefinition,
+  type AgentMetadata,
+  type AgentRegistryEvents,
+  type CronJobConfig,
+  type CreateAgentParams,
+  type HeartbeatConfig,
+  type UpdateAgentParams,
 } from '../types.js';
 import { createLogger, type Logger } from '../utils/logger.js';
 
@@ -516,6 +516,11 @@ function buildDefaultAgentsMd(params: CreateAgentParams): string {
     '- Share a short update before major edits or long-running commands.',
     '- Call out assumptions, blockers, or risky tradeoffs as soon as they appear.',
     '- If confidence is low, pause and ask for confirmation before proceeding.',
+    '',
+    '## Response Behavior',
+    '- Answer questions clearly, avoid unnecessary chatter.',
+    '- Share useful info proactively only when it adds clear value.',
+    '- Never duplicate-respond to the same message.',
     '',
     '## Reporting Style',
     '- Start with outcome first, then list key changes and touched files.',

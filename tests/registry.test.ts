@@ -102,6 +102,7 @@ describe('AgentRegistry', () => {
     expect(agentsMd).toContain('## Persona');
     expect(agentsMd).toContain('## Boundaries');
     expect(agentsMd).toContain('## When To Speak');
+    expect(agentsMd).toContain('## Response Behavior');
     expect(agentsMd).toContain('## Reporting Style');
 
     expect(memoryMd).toContain('# MEMORY');
@@ -150,6 +151,7 @@ describe('AgentRegistry', () => {
     expect(agentsMd).toContain('CUSTOM-MARKER');
     expect(agentsMd).toContain('## Notes');
   });
+
 });
 
 function formatDate(input: Date): string {
