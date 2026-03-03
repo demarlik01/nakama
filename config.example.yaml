@@ -6,6 +6,7 @@ slack:
   bot_token: ${SLACK_BOT_TOKEN}
 
 llm:
+  implementation: pi
   provider: anthropic
   defaultModel: claude-sonnet-4-20250514
   auth: setup-token
@@ -17,6 +18,9 @@ workspaces:
 api:
   enabled: true
   port: 3001
+
+notifications:
+  defaultChannel: ${SLACK_NOTIFY_CHANNEL}
 
 session:
   idleTimeoutMin: 30

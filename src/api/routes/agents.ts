@@ -1,10 +1,11 @@
-import { writeFile } from 'node:fs/promises';
+import { readFile, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { Router, type Request, type Response } from 'express';
 
 import type {
   AgentDefinition,
   CreateAgentParams,
+  SessionStatus,
   UpdateAgentParams,
 } from '../../types.js';
 import type { AgentRegistry } from '../../core/registry.js';
@@ -29,31 +30,35 @@ export function createAgentsRouter(deps: AgentsRouterDependencies): Router {
   const router = Router();
   const logger = deps.logger ?? createLogger('ApiAgentsRoutes');
 
+  router.param('id', (req, res, next, id: string) => {
+    try {
+      ensureSafeAgentId(id, `id (${req.method} ${req.path})`);
+      next();
+    } catch (error) {
+      respondError(res, 400, error);
+    }
+  });
+
   router.post('/', async (req, res) => {
     try {
       const payload = asCreateAgentParams(req.body);
       const agent = await deps.registry.create(payload);
-      res.status(201).json({ agent });
+      res.status(201).json({ agent: withAgentStatus(agent, deps.sessionManager) });
     } catch (error) {
       if (error instanceof ConflictError) {
         respondError(res, 409, error);
-      } else {
+      } else if (error instanceof RequestValidationError) {
         respondError(res, 400, error);
+      } else {
+        respondUnexpectedError(res, logger, error);
       }
     }
   });
 
   router.get('/', (_req, res) => {
-    const sessions = new Map(
-      deps.sessionManager
-        .getAllSessions()
-        .map((session) => [session.agentId, session] as const),
-    );
-
-    const agents = deps.registry.getAll().map((agent) => ({
-      ...agent,
-      status: sessions.get(agent.id)?.status ?? 'idle',
-    }));
+    const agents = deps.registry
+      .getAll()
+      .map((agent) => withAgentStatus(agent, deps.sessionManager));
 
     res.json({ agents });
   });
@@ -65,7 +70,7 @@ export function createAgentsRouter(deps: AgentsRouterDependencies): Router {
       return;
     }
 
-    res.json({ agent });
+    res.json({ agent: withAgentStatus(agent, deps.sessionManager) });
   });
 
   router.put('/:id', async (req, res) => {
@@ -85,12 +90,14 @@ export function createAgentsRouter(deps: AgentsRouterDependencies): Router {
       }
 
       const agent = await deps.registry.update(req.params.id, payload);
-      res.json({ agent });
+      res.json({ agent: withAgentStatus(agent, deps.sessionManager) });
     } catch (error) {
       if (error instanceof NotFoundError) {
         respondError(res, 404, error);
-      } else {
+      } else if (error instanceof RequestValidationError) {
         respondError(res, 400, error);
+      } else {
+        respondUnexpectedError(res, logger, error);
       }
     }
   });
@@ -112,32 +119,45 @@ export function createAgentsRouter(deps: AgentsRouterDependencies): Router {
       }
 
       const agent = await deps.registry.update(req.params.id, payload);
-      res.json({ agent });
+      res.json({ agent: withAgentStatus(agent, deps.sessionManager) });
     } catch (error) {
       if (error instanceof NotFoundError) {
         respondError(res, 404, error);
-      } else {
+      } else if (error instanceof RequestValidationError) {
         respondError(res, 400, error);
+      } else {
+        respondUnexpectedError(res, logger, error);
       }
     }
   });
 
   router.delete('/:id', async (req, res) => {
     try {
+      const agentId = req.params.id;
+
       // Dispose active session before removing
-      const session = deps.sessionManager.getActiveSession(req.params.id);
+      const session = deps.sessionManager.getActiveSession(agentId);
       if (session !== undefined) {
-        await deps.sessionManager.disposeSession(req.params.id);
-        logger.info('Disposed active session before agent deletion', { agentId: req.params.id });
+        if (session.status === 'running' || session.queueDepth > 0) {
+          res.status(409).json({
+            error: 'Agent has an active running session. Wait for completion before deleting.',
+          });
+          return;
+        }
+
+        await deps.sessionManager.disposeSession(agentId);
+        logger.info('Disposed active session before agent deletion', { agentId });
       }
 
-      await deps.registry.remove(req.params.id);
+      await deps.registry.remove(agentId);
       res.status(204).send();
     } catch (error) {
       if (error instanceof NotFoundError) {
         respondError(res, 404, error);
-      } else {
+      } else if (error instanceof RequestValidationError) {
         respondError(res, 400, error);
+      } else {
+        respondUnexpectedError(res, logger, error);
       }
     }
   });
@@ -170,46 +190,21 @@ export function createAgentsRouter(deps: AgentsRouterDependencies): Router {
       return;
     }
 
-    const limit = Math.min(Number(req.query.limit) || 100, 500);
+    const rawLimit = Number(req.query.limit);
+    const limit = Number.isFinite(rawLimit)
+      ? Math.min(Math.max(Math.trunc(rawLimit), 1), 500)
+      : 100;
     const level = (req.query.level as string) || undefined;
 
     try {
-      const { execSync } = await import('node:child_process');
-      // Search structured JSON logs for this agent's entries
-      // Logs are written to stdout as JSON lines; PM2 captures them in ~/.pm2/logs/
-      // For dev, we grep the process stdout. This reads PM2 log files if available.
       const pm2LogPath = `${process.env.HOME}/.pm2/logs/agent-for-work-out.log`;
       const { existsSync } = await import('node:fs');
 
-      let lines: string[] = [];
-
+      let logs: Record<string, unknown>[] = [];
       if (existsSync(pm2LogPath)) {
-        const raw = execSync(
-          `grep '"agentId":"${agent.id}"' "${pm2LogPath}" | tail -n ${limit}`,
-          { encoding: 'utf8', timeout: 5000 },
-        ).trim();
-        if (raw) lines = raw.split('\n');
+        const raw = await readFile(pm2LogPath, 'utf8');
+        logs = selectAgentLogEntries(raw, agent.id, limit, level);
       }
-
-      // Also check recent structured logs from process stdout capture
-      // Parse JSON lines and filter
-      const logs = lines
-        .map((line) => {
-          try {
-            // PM2 prepends timestamp, strip it to find JSON
-            const jsonStart = line.indexOf('{');
-            if (jsonStart < 0) return null;
-            return JSON.parse(line.slice(jsonStart));
-          } catch {
-            return null;
-          }
-        })
-        .filter((entry): entry is Record<string, unknown> => {
-          if (!entry) return false;
-          if (level && entry.level !== level) return false;
-          return true;
-        })
-        .slice(-limit);
 
       res.json({ logs, count: logs.length });
     } catch {
@@ -335,7 +330,12 @@ export function createAgentsRouter(deps: AgentsRouterDependencies): Router {
 }
 
 function asCreateAgentParams(value: unknown): CreateAgentParams {
-  const body = value as Record<string, unknown>;
+  const body = asObject(value, 'body');
+  const notifyChannel = asOptionalString(body.notifyChannel, 'notifyChannel');
+  const legacyNotifyChannel = asOptionalString(
+    body.errorNotificationChannel,
+    'errorNotificationChannel',
+  );
 
   return {
     id: asString(body.id, 'id'),
@@ -343,10 +343,8 @@ function asCreateAgentParams(value: unknown): CreateAgentParams {
     slackDisplayName: asOptionalString(body.slackDisplayName, 'slackDisplayName'),
     slackIcon: asOptionalString(body.slackIcon, 'slackIcon'),
     description: asOptionalString(body.description, 'description'),
-    errorNotificationChannel: asOptionalString(
-      body.errorNotificationChannel,
-      'errorNotificationChannel',
-    ),
+    notifyChannel: notifyChannel ?? legacyNotifyChannel,
+    errorNotificationChannel: legacyNotifyChannel,
     agentsMd: asOptionalString(body.agentsMd, 'agentsMd'),
     slackChannels: asNonEmptyStringArray(body.slackChannels, 'slackChannels'),
     slackUsers: asOptionalStringArray(body.slackUsers, 'slackUsers') ?? [],
@@ -355,7 +353,7 @@ function asCreateAgentParams(value: unknown): CreateAgentParams {
 }
 
 function asUpdateAgentParams(value: unknown): UpdateAgentParams {
-  const body = value as Record<string, unknown>;
+  const body = asObject(value, 'body');
 
   const payload: UpdateAgentParams = {};
 
@@ -370,6 +368,12 @@ function asUpdateAgentParams(value: unknown): UpdateAgentParams {
   }
   if ('description' in body) {
     payload.description = asOptionalString(body.description, 'description');
+  }
+  if ('notifyChannel' in body || 'errorNotificationChannel' in body) {
+    payload.notifyChannel = asOptionalString(
+      body.notifyChannel ?? body.errorNotificationChannel,
+      'notifyChannel',
+    );
   }
   if ('errorNotificationChannel' in body) {
     payload.errorNotificationChannel = asOptionalString(
@@ -402,9 +406,18 @@ function asUpdateAgentParams(value: unknown): UpdateAgentParams {
     if (limits !== undefined && limits !== null) {
       const l = asObject(limits, 'limits');
       payload.limits = {
-        maxConcurrentSessions: l.maxConcurrentSessions !== undefined ? Number(l.maxConcurrentSessions) : undefined,
-        dailyTokenLimit: l.dailyTokenLimit !== undefined ? Number(l.dailyTokenLimit) : undefined,
-        maxMessageLength: l.maxMessageLength !== undefined ? Number(l.maxMessageLength) : undefined,
+        maxConcurrentSessions: asOptionalNonNegativeInteger(
+          l.maxConcurrentSessions,
+          'limits.maxConcurrentSessions',
+        ),
+        dailyTokenLimit: asOptionalNonNegativeInteger(
+          l.dailyTokenLimit,
+          'limits.dailyTokenLimit',
+        ),
+        maxMessageLength: asOptionalNonNegativeInteger(
+          l.maxMessageLength,
+          'limits.maxMessageLength',
+        ),
       };
     }
   }
@@ -418,7 +431,7 @@ function asUpdateAgentParams(value: unknown): UpdateAgentParams {
 
 function asAgentSchedules(value: unknown, label: string): AgentDefinition['schedules'] {
   if (!Array.isArray(value)) {
-    throw new Error(`${label} must be an array`);
+    throw new RequestValidationError(`${label} must be an array`);
   }
 
   return value.map((schedule, index) => {
@@ -436,14 +449,14 @@ function asAgentSchedules(value: unknown, label: string): AgentDefinition['sched
 
 function asObject(value: unknown, label: string): Record<string, unknown> {
   if (typeof value !== 'object' || value === null || Array.isArray(value)) {
-    throw new Error(`${label} must be an object`);
+    throw new RequestValidationError(`${label} must be an object`);
   }
   return value as Record<string, unknown>;
 }
 
 function asString(value: unknown, label: string): string {
   if (typeof value !== 'string' || value.trim() === '') {
-    throw new Error(`${label} must be a non-empty string`);
+    throw new RequestValidationError(`${label} must be a non-empty string`);
   }
   return value;
 }
@@ -454,7 +467,7 @@ function asOptionalString(value: unknown, label: string): string | undefined {
   }
 
   if (typeof value !== 'string' || value.trim() === '') {
-    throw new Error(`${label} must be a non-empty string when provided`);
+    throw new RequestValidationError(`${label} must be a non-empty string when provided`);
   }
 
   return value;
@@ -462,20 +475,35 @@ function asOptionalString(value: unknown, label: string): string | undefined {
 
 function asBoolean(value: unknown, label: string): boolean {
   if (typeof value !== 'boolean') {
-    throw new Error(`${label} must be a boolean`);
+    throw new RequestValidationError(`${label} must be a boolean`);
   }
   return value;
 }
 
+function asOptionalNonNegativeInteger(
+  value: unknown,
+  label: string,
+): number | undefined {
+  if (value === undefined || value === null || value === '') {
+    return undefined;
+  }
+
+  const parsed = typeof value === 'number' ? value : Number(value);
+  if (!Number.isInteger(parsed) || parsed < 0) {
+    throw new RequestValidationError(`${label} must be a non-negative integer`);
+  }
+  return parsed;
+}
+
 function asStringArray(value: unknown, label: string): string[] {
   if (!Array.isArray(value)) {
-    throw new Error(`${label} must be an array`);
+    throw new RequestValidationError(`${label} must be an array`);
   }
 
   const result: string[] = [];
   for (const [index, item] of value.entries()) {
     if (typeof item !== 'string') {
-      throw new Error(`${label}[${index}] must be a string`);
+      throw new RequestValidationError(`${label}[${index}] must be a string`);
     }
     result.push(item);
   }
@@ -493,7 +521,7 @@ function asOptionalStringArray(value: unknown, label: string): string[] | undefi
 function asNonEmptyStringArray(value: unknown, label: string): string[] {
   const items = asStringArray(value, label);
   if (items.length === 0) {
-    throw new Error(`${label} must contain at least one item`);
+    throw new RequestValidationError(`${label} must contain at least one item`);
   }
   return items;
 }
@@ -501,6 +529,96 @@ function asNonEmptyStringArray(value: unknown, label: string): string[] {
 function respondError(res: Response, statusCode: number, error: unknown): void {
   const message = error instanceof Error ? error.message : String(error);
   res.status(statusCode).json({ error: message });
+}
+
+type ApiAgentStatus = SessionStatus | 'disabled';
+
+function withAgentStatus(
+  agent: AgentDefinition,
+  sessionManager: SessionManager,
+): AgentDefinition & { status: ApiAgentStatus } {
+  const session = sessionManager.getActiveSession(agent.id);
+  return {
+    ...agent,
+    status: session?.status ?? (agent.enabled ? 'idle' : 'disabled'),
+  };
+}
+
+function ensureSafeAgentId(id: string, label: string): void {
+  if (
+    id.length === 0 ||
+    id === '.' ||
+    id === '..' ||
+    id.includes('/') ||
+    id.includes('\\') ||
+    id.includes('\0') ||
+    id.includes('..')
+  ) {
+    throw new RequestValidationError(`${label} contains invalid path characters`);
+  }
+}
+
+function selectAgentLogEntries(
+  raw: string,
+  agentId: string,
+  limit: number,
+  level?: string,
+): Record<string, unknown>[] {
+  const lines = raw.split('\n');
+  const entries: Record<string, unknown>[] = [];
+
+  for (let index = lines.length - 1; index >= 0 && entries.length < limit; index -= 1) {
+    const line = lines[index];
+    if (line === undefined) {
+      continue;
+    }
+
+    const entry = parseStructuredLogLine(line);
+    if (entry === undefined) {
+      continue;
+    }
+    if (entry.agentId !== agentId) {
+      continue;
+    }
+    if (level !== undefined && entry.level !== level) {
+      continue;
+    }
+    entries.push(entry);
+  }
+
+  entries.reverse();
+  return entries;
+}
+
+function parseStructuredLogLine(line: string): Record<string, unknown> | undefined {
+  const jsonStart = line.indexOf('{');
+  if (jsonStart < 0) {
+    return undefined;
+  }
+
+  try {
+    const parsed = JSON.parse(line.slice(jsonStart)) as unknown;
+    if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) {
+      return undefined;
+    }
+    return parsed as Record<string, unknown>;
+  } catch {
+    return undefined;
+  }
+}
+
+class RequestValidationError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'RequestValidationError';
+  }
+}
+
+function respondUnexpectedError(res: Response, logger: Logger, error: unknown): void {
+  logger.error('Unhandled API error', {
+    error: error instanceof Error ? error.message : String(error),
+  });
+  res.status(500).json({ error: 'Internal server error' });
 }
 
 export type AgentsRouter = ReturnType<typeof createAgentsRouter>;

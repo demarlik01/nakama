@@ -8,9 +8,7 @@ import type { AppConfig } from '../../types.js';
  * /api/health is always public (for health checks).
  */
 export function createBasicAuthMiddleware(config: AppConfig) {
-  const authConfig = (config.api as any).auth as
-    | { username: string; password: string }
-    | undefined;
+  const authConfig = config.api.auth;
 
   if (!authConfig?.username || !authConfig?.password) {
     return (_req: Request, _res: Response, next: NextFunction) => next();
@@ -21,7 +19,10 @@ export function createBasicAuthMiddleware(config: AppConfig) {
   ).toString('base64');
 
   return (req: Request, res: Response, next: NextFunction) => {
-    if (req.path === '/api/health') {
+    if (
+      req.path === '/api/health' &&
+      (req.method === 'GET' || req.method === 'HEAD')
+    ) {
       next();
       return;
     }

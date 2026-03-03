@@ -33,34 +33,44 @@ export function AgentCreate() {
     slackDisplayName: "",
     slackIcon: "",
     slackUsers: "",
+    notifyChannel: "",
+    agentsMd: "",
   });
   const [submitting, setSubmitting] = useState(false);
 
   const handleCreate = async () => {
+    const trimmedId = form.id.trim();
     const slackChannels = splitCommaSeparated(form.slackChannels);
     const slackUsers = splitCommaSeparated(form.slackUsers);
+    const trimmedAgentsMd = form.agentsMd.trim();
 
-    if (!form.id.trim() || !form.displayName.trim() || !form.model.trim() || slackChannels.length === 0) {
+    if (!trimmedId || !form.displayName.trim() || !form.model.trim() || slackChannels.length === 0) {
       toast.error("id, displayName, slackChannels, model은 필수입니다.");
+      return;
+    }
+    if (!isValidAgentId(trimmedId)) {
+      toast.error("id는 소문자 영문/숫자로 시작하고, 소문자 영문/숫자/-/_만 사용할 수 있습니다.");
       return;
     }
 
     setSubmitting(true);
     try {
       await createAgent({
-        id: form.id.trim(),
+        id: trimmedId,
         displayName: form.displayName.trim(),
         model: form.model.trim(),
         slackChannels,
         description: form.description.trim() || undefined,
         slackDisplayName: form.slackDisplayName.trim() || undefined,
         slackIcon: form.slackIcon.trim() || undefined,
+        notifyChannel: form.notifyChannel.trim() || undefined,
+        agentsMd: trimmedAgentsMd.length > 0 ? form.agentsMd : undefined,
         slackUsers: slackUsers.length > 0 ? slackUsers : undefined,
       });
       toast.success("Agent created");
-      navigate(`/agents/${form.id.trim()}`);
-    } catch {
-      toast.error("Failed to create agent");
+      navigate(`/agents/${trimmedId}`);
+    } catch (error) {
+      toast.error(extractErrorMessage(error, "Failed to create agent"));
     } finally {
       setSubmitting(false);
     }
@@ -146,6 +156,25 @@ export function AgentCreate() {
             placeholder="U12345678, U87654321"
           />
         </div>
+
+        <div className="grid gap-1.5">
+          <Label>Notify Channel</Label>
+          <Input
+            value={form.notifyChannel}
+            onChange={(e) => setForm({ ...form, notifyChannel: e.target.value })}
+            placeholder="C01234567 (optional)"
+          />
+        </div>
+
+        <div className="grid gap-1.5">
+          <Label>AGENTS.md (optional)</Label>
+          <Textarea
+            value={form.agentsMd}
+            onChange={(e) => setForm({ ...form, agentsMd: e.target.value })}
+            placeholder="비워두면 displayName/description 기반으로 자동 생성됩니다."
+            className="min-h-[220px] font-mono text-sm"
+          />
+        </div>
       </div>
 
       <Button className="mt-4" onClick={handleCreate} disabled={submitting}>
@@ -160,4 +189,21 @@ function splitCommaSeparated(value: string): string[] {
     .split(",")
     .map((item) => item.trim())
     .filter((item) => item.length > 0);
+}
+
+function isValidAgentId(value: string): boolean {
+  return /^[a-z0-9][a-z0-9-_]*$/.test(value);
+}
+
+function extractErrorMessage(error: unknown, fallback: string): string {
+  if (!(error instanceof Error)) {
+    return fallback;
+  }
+
+  const message = error.message.trim();
+  if (message === "") {
+    return fallback;
+  }
+
+  return message;
 }

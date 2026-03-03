@@ -26,6 +26,7 @@ import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import {
   Dialog,
+  DialogClose,
   DialogContent,
   DialogDescription,
   DialogFooter,
@@ -51,6 +52,9 @@ export function AgentDetail() {
   const [loadingSession, setLoadingSession] = useState(false);
   const [loading, setLoading] = useState(true);
   const [logs, setLogs] = useState<Array<{ message: string; timestamp: string; level?: string }>>([]);
+  const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
+  const [deleteConfirmInput, setDeleteConfirmInput] = useState("");
+  const [deleting, setDeleting] = useState(false);
   const sessionTimelineRef = useRef<HTMLDivElement | null>(null);
   const sessionRequestSeq = useRef(0);
 
@@ -126,9 +130,10 @@ export function AgentDetail() {
     try {
       const updated = await updateAgent(id, form);
       setAgent(updated);
+      setForm(updated);
       toast.success("Config saved");
-    } catch {
-      toast.error("Failed to save config");
+    } catch (error) {
+      toast.error(extractErrorMessage(error, "Failed to save config"));
     }
   };
 
@@ -137,8 +142,8 @@ export function AgentDetail() {
     try {
       await updateAgentsMd(id, mdContent);
       toast.success("AGENTS.md saved");
-    } catch {
-      toast.error("Failed to save AGENTS.md");
+    } catch (error) {
+      toast.error(extractErrorMessage(error, "Failed to save AGENTS.md"));
     }
   };
 
@@ -147,21 +152,56 @@ export function AgentDetail() {
     try {
       const updated = await updateAgent(id, { enabled: !agent.enabled });
       setAgent(updated);
+      setForm(updated);
       toast.success(updated.enabled ? "Agent enabled" : "Agent disabled");
-    } catch {
-      toast.error("Failed to toggle agent");
+    } catch (error) {
+      toast.error(extractErrorMessage(error, "Failed to toggle agent"));
     }
   };
 
   const handleDelete = async () => {
-    if (!id) return;
+    if (!id || deleting || agent?.status === "running") return;
+    if (deleteConfirmInput.trim() !== id) {
+      toast.error(`Type "${id}" to confirm deletion`);
+      return;
+    }
+
+    setDeleting(true);
     try {
       await deleteAgent(id);
+      setDeleteDialogOpen(false);
       toast.success("Agent deleted");
       navigate("/");
-    } catch {
-      toast.error("Failed to delete agent");
+    } catch (error) {
+      toast.error(extractErrorMessage(error, "Failed to delete agent"));
+    } finally {
+      setDeleting(false);
     }
+  };
+
+  const updateLimit = (
+    key: "maxConcurrentSessions" | "dailyTokenLimit" | "maxMessageLength",
+    rawValue: string
+  ) => {
+    const parsed = parseOptionalNonNegativeInteger(rawValue);
+    if (parsed === null) {
+      return;
+    }
+    setForm((prev) => {
+      const nextLimits = {
+        ...(prev.limits ?? {}),
+        [key]: parsed,
+      };
+
+      const hasAnyLimit = Object.values(nextLimits).some(
+        (value) => value !== undefined
+      );
+
+      return {
+        ...prev,
+        limits: hasAnyLimit ? nextLimits : undefined,
+      };
+    });
   };
 
   const handleSelectSession = async (sessionId: string) => {
@@ -227,7 +267,24 @@ export function AgentDetail() {
     timelineEl.scrollTop = timelineEl.scrollHeight;
   }, [selectedSessionId, loadingSession, sessionMessages.length]);
 
-  const maxTokens = Math.max(...usage.map((d) => d.totalTokens), 1);
+  const usageChartData = useMemo(
+    () =>
+      usage.map((bucket) => {
+        const inputTokens = clampNonNegativeNumber(bucket.inputTokens);
+        const outputTokens = clampNonNegativeNumber(bucket.outputTokens);
+        const totalTokens = clampNonNegativeNumber(bucket.totalTokens);
+        const chartTotal = Math.max(totalTokens, inputTokens + outputTokens);
+        return {
+          ...bucket,
+          inputTokens,
+          outputTokens,
+          totalTokens,
+          chartTotal,
+        };
+      }),
+    [usage]
+  );
+  const maxTokens = Math.max(...usageChartData.map((d) => d.chartTotal), 1);
 
   if (loading) return <div className="text-muted-foreground">Loading...</div>;
   if (!agent) return <div className="text-destructive">Agent not found</div>;
@@ -314,13 +371,13 @@ export function AgentDetail() {
               />
             </div>
             <div className="grid gap-1.5">
-              <Label>Error Notification Channel</Label>
+              <Label>Notify Channel</Label>
               <Input
-                value={form.errorNotificationChannel ?? ""}
+                value={form.notifyChannel ?? ""}
                 onChange={(e) =>
                   setForm({
                     ...form,
-                    errorNotificationChannel: e.target.value,
+                    notifyChannel: e.target.value,
                   })
                 }
                 placeholder="C01234567"
@@ -338,11 +395,12 @@ export function AgentDetail() {
                     <Input
                       id="maxConcurrentSessions"
                       type="number"
+                      min={0}
+                      step={1}
                       value={form.limits?.maxConcurrentSessions ?? ""}
-                      onChange={(e) => setForm({
-                        ...form,
-                        limits: { ...form.limits, maxConcurrentSessions: Number(e.target.value) }
-                      })}
+                      onChange={(e) =>
+                        updateLimit("maxConcurrentSessions", e.target.value)
+                      }
                     />
                   </div>
                   <div className="space-y-2">
@@ -350,11 +408,10 @@ export function AgentDetail() {
                     <Input
                       id="dailyTokenLimit"
                       type="number"
+                      min={0}
+                      step={1}
                       value={form.limits?.dailyTokenLimit ?? ""}
-                      onChange={(e) => setForm({
-                        ...form,
-                        limits: { ...form.limits, dailyTokenLimit: Number(e.target.value) }
-                      })}
+                      onChange={(e) => updateLimit("dailyTokenLimit", e.target.value)}
                     />
                   </div>
                   <div className="space-y-2">
@@ -362,11 +419,12 @@ export function AgentDetail() {
                     <Input
                       id="maxMessageLength"
                       type="number"
+                      min={0}
+                      step={1}
                       value={form.limits?.maxMessageLength ?? ""}
-                      onChange={(e) => setForm({
-                        ...form,
-                        limits: { ...form.limits, maxMessageLength: Number(e.target.value) }
-                      })}
+                      onChange={(e) =>
+                        updateLimit("maxMessageLength", e.target.value)
+                      }
                     />
                   </div>
                 </div>
@@ -421,11 +479,11 @@ export function AgentDetail() {
                 </Button>
               </div>
             </div>
-            {usage.length === 0 ? (
+            {usageChartData.length === 0 ? (
               <p className="text-muted-foreground">No usage data yet.</p>
             ) : (
               <>
-              {usage.map((d) => (
+              {usageChartData.map((d) => (
                 <div key={d.period} className="flex items-center gap-2 text-xs">
                   <span className="w-24 text-muted-foreground">{d.period}</span>
                   <div className="flex-1 flex h-5 rounded overflow-hidden bg-muted">
@@ -566,9 +624,19 @@ export function AgentDetail() {
         <Button variant="outline" onClick={handleToggle}>
           {agent.enabled ? "Disable" : "Enable"}
         </Button>
-        <Dialog>
+        <Dialog
+          open={deleteDialogOpen}
+          onOpenChange={(open) => {
+            setDeleteDialogOpen(open);
+            if (!open) {
+              setDeleteConfirmInput("");
+            }
+          }}
+        >
           <DialogTrigger asChild>
-            <Button variant="destructive">Delete</Button>
+            <Button variant="destructive" disabled={deleting || agent.status === "running"}>
+              Delete
+            </Button>
           </DialogTrigger>
           <DialogContent>
             <DialogHeader>
@@ -577,9 +645,33 @@ export function AgentDetail() {
                 정말 삭제하시겠습니까? "{agent.displayName}" 에이전트는 아카이브 처리됩니다.
               </DialogDescription>
             </DialogHeader>
+            {agent.status === "running" ? (
+              <p className="text-sm text-destructive">
+                에이전트가 실행 중입니다. 완료된 후 삭제할 수 있습니다.
+              </p>
+            ) : null}
+            <div className="grid gap-1.5">
+              <Label htmlFor="delete-confirm">
+                Confirm by typing <span className="font-mono">{agent.id}</span>
+              </Label>
+              <Input
+                id="delete-confirm"
+                value={deleteConfirmInput}
+                onChange={(e) => setDeleteConfirmInput(e.target.value)}
+                placeholder={agent.id}
+                autoComplete="off"
+              />
+            </div>
             <DialogFooter>
-              <Button variant="destructive" onClick={handleDelete}>
-                Delete
+              <DialogClose asChild>
+                <Button variant="outline" disabled={deleting}>Cancel</Button>
+              </DialogClose>
+              <Button
+                variant="destructive"
+                onClick={handleDelete}
+                disabled={deleting || agent.status === "running" || deleteConfirmInput.trim() !== agent.id}
+              >
+                {deleting ? "Deleting..." : "Delete"}
               </Button>
             </DialogFooter>
           </DialogContent>
@@ -695,4 +787,35 @@ function parseIsoTimestamp(value: unknown): string | undefined {
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null;
+}
+
+function parseOptionalNonNegativeInteger(value: string): number | undefined | null {
+  const trimmed = value.trim();
+  if (trimmed === "") {
+    return undefined;
+  }
+
+  const parsed = Number(trimmed);
+  if (!Number.isInteger(parsed) || parsed < 0) {
+    return null;
+  }
+
+  return parsed;
+}
+
+function clampNonNegativeNumber(value: number): number {
+  return Number.isFinite(value) && value > 0 ? value : 0;
+}
+
+function extractErrorMessage(error: unknown, fallback: string): string {
+  if (!(error instanceof Error)) {
+    return fallback;
+  }
+
+  const message = error.message.trim();
+  if (message === "") {
+    return fallback;
+  }
+
+  return message;
 }

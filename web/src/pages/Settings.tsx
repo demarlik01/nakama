@@ -18,6 +18,7 @@ interface ConfigResponse {
     };
     notifications?: {
       adminSlackUser?: string;
+      defaultChannel?: string;
     };
     [key: string]: unknown;
   };
@@ -43,7 +44,8 @@ export function Settings() {
   }
 
   const authEnabled = !!config.api?.auth;
-  const adminUser = config.notifications?.adminSlackUser;
+  const defaultChannel =
+    config.notifications?.defaultChannel ?? config.notifications?.adminSlackUser;
 
   return (
     <div className="space-y-6">
@@ -89,24 +91,24 @@ export function Settings() {
           <CardHeader>
             <CardTitle className="flex items-center gap-2">
               <Bell className="h-5 w-5" />
-              Admin Notifications
+              Error Notifications
             </CardTitle>
             <CardDescription>
-              Slack DM alerts on agent errors
+              Slack channel/user alerts on agent errors
             </CardDescription>
           </CardHeader>
           <CardContent>
             <div className="flex items-center gap-2">
-              <span className="text-sm font-medium">Admin User:</span>
-              {adminUser ? (
-                <Badge variant="default" className="bg-green-600">{adminUser}</Badge>
+              <span className="text-sm font-medium">Default Channel:</span>
+              {defaultChannel ? (
+                <Badge variant="default" className="bg-green-600">{defaultChannel}</Badge>
               ) : (
                 <Badge variant="secondary">Not configured</Badge>
               )}
             </div>
-            {!adminUser && (
+            {!defaultChannel && (
               <p className="text-xs text-muted-foreground mt-2">
-                Add <code className="bg-muted px-1 rounded">notifications.adminSlackUser</code> to config.yaml.
+                Add <code className="bg-muted px-1 rounded">notifications.defaultChannel</code> to config.yaml.
               </p>
             )}
           </CardContent>

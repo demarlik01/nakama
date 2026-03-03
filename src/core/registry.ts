@@ -128,7 +128,7 @@ export class AgentRegistry extends EventEmitter<AgentRegistryEvents> {
         slackDisplayName: params.slackDisplayName,
         slackIcon: params.slackIcon,
         description: params.description,
-        errorNotificationChannel: params.errorNotificationChannel,
+        notifyChannel: params.notifyChannel ?? params.errorNotificationChannel,
         slackChannels: params.slackChannels,
         slackUsers: params.slackUsers,
         model: params.model,
@@ -168,7 +168,7 @@ export class AgentRegistry extends EventEmitter<AgentRegistryEvents> {
       slackDisplayName: existing.slackDisplayName,
       slackIcon: existing.slackIcon,
       description: existing.description,
-      errorNotificationChannel: existing.errorNotificationChannel,
+      notifyChannel: existing.notifyChannel ?? existing.errorNotificationChannel,
       slackChannels: existing.slackChannels,
       slackUsers: existing.slackUsers,
       slackBotUserId: existing.slackBotUserId,
@@ -183,6 +183,9 @@ export class AgentRegistry extends EventEmitter<AgentRegistryEvents> {
 
     const hasSlackDisplayName = Object.prototype.hasOwnProperty.call(params, 'slackDisplayName');
     const hasSlackIcon = Object.prototype.hasOwnProperty.call(params, 'slackIcon');
+    const hasNotifyChannel =
+      Object.prototype.hasOwnProperty.call(params, 'notifyChannel') ||
+      Object.prototype.hasOwnProperty.call(params, 'errorNotificationChannel');
     const hasErrorNotificationChannel = Object.prototype.hasOwnProperty.call(
       params,
       'errorNotificationChannel',
@@ -193,9 +196,14 @@ export class AgentRegistry extends EventEmitter<AgentRegistryEvents> {
       slackDisplayName: hasSlackDisplayName ? params.slackDisplayName : currentMetadata.slackDisplayName,
       slackIcon: hasSlackIcon ? params.slackIcon : currentMetadata.slackIcon,
       description: params.description ?? currentMetadata.description,
+      notifyChannel: hasNotifyChannel
+        ? params.notifyChannel ?? params.errorNotificationChannel
+        : currentMetadata.notifyChannel ?? currentMetadata.errorNotificationChannel,
       errorNotificationChannel: hasErrorNotificationChannel
         ? params.errorNotificationChannel
-        : currentMetadata.errorNotificationChannel,
+        : hasNotifyChannel
+          ? undefined
+          : currentMetadata.errorNotificationChannel,
       slackChannels: params.slackChannels ?? currentMetadata.slackChannels,
       slackUsers: params.slackUsers ?? currentMetadata.slackUsers,
       slackBotUserId: params.slackBotUserId ?? currentMetadata.slackBotUserId,
@@ -228,16 +236,39 @@ export class AgentRegistry extends EventEmitter<AgentRegistryEvents> {
       throw new NotFoundError(`Agent not found: ${id}`);
     }
 
-    const archiveRoot = path.join(this.workspacesRoot, ARCHIVE_DIR);
+    const rootPath = path.resolve(this.workspacesRoot);
+    const workspacePath = path.resolve(existing.workspacePath);
+    assertPathWithinRoot(workspacePath, rootPath, `workspace path for agent "${id}"`);
+
+    const archiveRoot = path.resolve(this.workspacesRoot, ARCHIVE_DIR);
     const archivedName = `${id}-${new Date().toISOString().replace(/[:.]/g, '-')}`;
+    const archivePath = path.resolve(archiveRoot, archivedName);
+    assertPathWithinRoot(archivePath, archiveRoot, `archive path for agent "${id}"`);
 
     await mkdir(archiveRoot, { recursive: true });
-    await rename(existing.workspacePath, path.join(archiveRoot, archivedName));
+    let archived = false;
+    try {
+      await rename(workspacePath, archivePath);
+      archived = true;
+    } catch (error: unknown) {
+      if (!hasErrorCode(error, 'ENOENT')) {
+        throw error;
+      }
+      this.logger.warn('Workspace path missing while removing agent; removing registry entry only', {
+        agentId: id,
+        workspacePath,
+      });
+    }
 
     this.agents.delete(id);
+    this.clearThreadMappingsForAgent(id);
     this.emit('agent:removed', id);
 
-    this.logger.info('Agent archived', { agentId: id, archivedName });
+    this.logger.info('Agent removed', {
+      agentId: id,
+      archived,
+      ...(archived ? { archivedName } : {}),
+    });
   }
 
   private startWatcher(): void {
@@ -315,6 +346,7 @@ export class AgentRegistry extends EventEmitter<AgentRegistryEvents> {
       this.emit('agent:added', agent);
     }
     for (const id of removed) {
+      this.clearThreadMappingsForAgent(id);
       this.emit('agent:removed', id);
     }
     for (const agent of updated) {
@@ -373,6 +405,7 @@ export class AgentRegistry extends EventEmitter<AgentRegistryEvents> {
       slackDisplayName: metadata.slackDisplayName,
       slackIcon: metadata.slackIcon,
       description: metadata.description,
+      notifyChannel: metadata.notifyChannel ?? metadata.errorNotificationChannel,
       errorNotificationChannel: metadata.errorNotificationChannel,
       workspacePath,
       slackChannels: metadata.slackChannels,
@@ -386,6 +419,14 @@ export class AgentRegistry extends EventEmitter<AgentRegistryEvents> {
       limits: metadata.limits,
       reactionTriggers: metadata.reactionTriggers,
     };
+  }
+
+  private clearThreadMappingsForAgent(agentId: string): void {
+    for (const [threadTs, mappedAgentId] of this.threadToAgent.entries()) {
+      if (mappedAgentId === agentId) {
+        this.threadToAgent.delete(threadTs);
+      }
+    }
   }
 }
 
@@ -403,6 +444,22 @@ function normalizeAgentId(input: string): string {
 
 function normalizeFile(content: string): string {
   return content.endsWith('\n') ? content : `${content}\n`;
+}
+
+function assertPathWithinRoot(targetPath: string, rootPath: string, label: string): void {
+  const relative = path.relative(rootPath, targetPath);
+  if (
+    relative === '' ||
+    relative === '..' ||
+    relative.startsWith(`..${path.sep}`) ||
+    path.isAbsolute(relative)
+  ) {
+    throw new Error(`${label} must be a child path within ${rootPath}`);
+  }
+}
+
+function hasErrorCode(error: unknown, code: string): boolean {
+  return typeof error === 'object' && error !== null && 'code' in error && (error as { code?: string }).code === code;
 }
 
 function resolveAgentsMdContent(params: CreateAgentParams): string {
@@ -459,6 +516,10 @@ async function readJsonIfExists(filePath: string): Promise<AgentMetadata | null>
       slackDisplayName: asOptionalString(parsed.slackDisplayName, 'slackDisplayName'),
       slackIcon: asOptionalString(parsed.slackIcon, 'slackIcon'),
       description: asOptionalString(parsed.description, 'description'),
+      notifyChannel: asOptionalString(
+        parsed.notifyChannel ?? parsed.errorNotificationChannel,
+        'notifyChannel',
+      ),
       errorNotificationChannel: asOptionalString(
         parsed.errorNotificationChannel,
         'errorNotificationChannel',

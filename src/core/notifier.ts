@@ -10,23 +10,23 @@ export interface ErrorNotification {
 }
 
 /**
- * Sends error notifications to an admin via Slack DM.
- * Requires `notifications.adminSlackUser` in config and a SlackGateway reference.
+ * Sends error notifications to a Slack channel/user.
+ * Uses `notifications.defaultChannel` with `notifications.adminSlackUser` as backward-compatible fallback.
  */
 export class Notifier {
   private readonly logger: Logger;
-  private readonly adminSlackUser?: string;
+  private readonly defaultChannel?: string;
   private slackPostMessage?: (channel: string, text: string) => Promise<void>;
 
   constructor(config: AppConfig, logger?: Logger) {
     this.logger = logger ?? createLogger('Notifier');
-    const notifications = (config as any).notifications as
-      | { adminSlackUser?: string }
-      | undefined;
-    this.adminSlackUser = notifications?.adminSlackUser;
+    const notifications = config.notifications;
+    this.defaultChannel = notifications?.defaultChannel ?? notifications?.adminSlackUser;
 
-    if (this.adminSlackUser) {
-      this.logger.info('Error notifications enabled', { adminUser: this.adminSlackUser });
+    if (this.defaultChannel) {
+      this.logger.info('Error notifications enabled', {
+        defaultChannel: this.defaultChannel,
+      });
     }
   }
 
@@ -35,7 +35,7 @@ export class Notifier {
   }
 
   async notifyError(notification: ErrorNotification): Promise<void> {
-    const channel = notification.channel ?? this.adminSlackUser;
+    const channel = notification.channel ?? this.defaultChannel;
     if (!channel || !this.slackPostMessage) {
       this.logger.debug('Error notification skipped (not configured)', {
         agentId: notification.agentId,

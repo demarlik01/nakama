@@ -31,6 +31,8 @@ export interface AgentDefinition {
   slackDisplayName?: string;
   slackIcon?: string;
   description?: string;
+  notifyChannel?: string;
+  // Deprecated alias; kept for backward compatibility.
   errorNotificationChannel?: string;
   workspacePath: string;
   slackChannels: string[];
@@ -48,10 +50,15 @@ export interface AgentDefinition {
 export interface AppConfig {
   server: { port: number };
   slack: { appToken: string; botToken: string };
-  llm: { provider: string; defaultModel: string; auth: string };
+  llm: {
+    implementation?: 'pi' | 'anthropic-direct' | 'openai-direct';
+    provider: string;
+    defaultModel: string;
+    auth: string;
+  };
   workspaces: { root: string; shared: string };
   api: { enabled: boolean; port: number; auth?: { username: string; password: string } };
-  notifications?: { adminSlackUser?: string };
+  notifications?: { adminSlackUser?: string; defaultChannel?: string };
   session: {
     idleTimeoutMin: number;
     maxQueueSize: number;
@@ -65,6 +72,8 @@ export interface AgentMetadata {
   slackDisplayName?: string;
   slackIcon?: string;
   description?: string;
+  notifyChannel?: string;
+  // Deprecated alias; kept for backward compatibility.
   errorNotificationChannel?: string;
   slackChannels: string[];
   slackUsers: string[];
@@ -84,6 +93,8 @@ export interface CreateAgentParams {
   slackDisplayName?: string;
   slackIcon?: string;
   description?: string;
+  notifyChannel?: string;
+  // Deprecated alias; kept for backward compatibility.
   errorNotificationChannel?: string;
   agentsMd?: string;
   slackChannels: string[];
@@ -102,6 +113,8 @@ export interface UpdateAgentParams {
   slackDisplayName?: string;
   slackIcon?: string;
   description?: string;
+  notifyChannel?: string;
+  // Deprecated alias; kept for backward compatibility.
   errorNotificationChannel?: string;
   slackChannels?: string[];
   slackUsers?: string[];

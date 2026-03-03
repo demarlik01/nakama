@@ -62,6 +62,11 @@ export function validateAppConfig(config: unknown): AppConfig {
   const llm = requireObject(root.llm, 'llm');
   const workspaces = (typeof root.workspaces === 'object' && root.workspaces !== null ? root.workspaces : {}) as Record<string, unknown>;
   const api = requireObject(root.api, 'api');
+  const apiAuth = requireOptionalApiAuth(api.auth, 'api.auth');
+  const notifications =
+    root.notifications === undefined
+      ? undefined
+      : requireObject(root.notifications, 'notifications');
   const session = requireObject(root.session, 'session');
   const configuredSessionTtlDays =
     session.sessionTTLDays ?? session.ttlDays ?? 30;
@@ -78,6 +83,7 @@ export function validateAppConfig(config: unknown): AppConfig {
       botToken: requireString(slack.bot_token, 'slack.bot_token'),
     },
     llm: {
+      implementation: requireOptionalLlmImplementation(llm.implementation, 'llm.implementation'),
       provider: requireString(llm.provider, 'llm.provider'),
       defaultModel: requireString(llm.defaultModel, 'llm.defaultModel'),
       auth: requireString(llm.auth, 'llm.auth'),
@@ -89,7 +95,21 @@ export function validateAppConfig(config: unknown): AppConfig {
     api: {
       enabled: requireBoolean(api.enabled, 'api.enabled'),
       port: requireNumber(api.port, 'api.port'),
+      auth: apiAuth,
     },
+    notifications:
+      notifications === undefined
+        ? undefined
+        : {
+            adminSlackUser: requireOptionalString(
+              notifications.adminSlackUser,
+              'notifications.adminSlackUser',
+            ),
+            defaultChannel: requireOptionalString(
+              notifications.defaultChannel,
+              'notifications.defaultChannel',
+            ),
+          },
     session: {
       idleTimeoutMin: requireNumber(session.idleTimeoutMin, 'session.idleTimeoutMin'),
       maxQueueSize: requireNumber(session.maxQueueSize, 'session.maxQueueSize'),
@@ -99,6 +119,21 @@ export function validateAppConfig(config: unknown): AppConfig {
       ),
       ttlDays: requireNonNegativeNumber(configuredSessionTtlDays, sessionTtlLabel),
     },
+  };
+}
+
+function requireOptionalApiAuth(
+  value: unknown,
+  pathLabel: string,
+): { username: string; password: string } | undefined {
+  if (value === undefined || value === null) {
+    return undefined;
+  }
+
+  const auth = requireObject(value, pathLabel);
+  return {
+    username: requireString(auth.username, `${pathLabel}.username`),
+    password: requireString(auth.password, `${pathLabel}.password`),
   };
 }
 
@@ -118,6 +153,29 @@ function requireString(value: unknown, pathLabel: string): string {
     throw new ConfigValidationError(`${pathLabel} must be a non-empty string`);
   }
   return value;
+}
+
+function requireOptionalString(value: unknown, pathLabel: string): string | undefined {
+  if (value === undefined || value === null) {
+    return undefined;
+  }
+  return requireString(value, pathLabel);
+}
+
+function requireOptionalLlmImplementation(
+  value: unknown,
+  pathLabel: string,
+): 'pi' | 'anthropic-direct' | 'openai-direct' | undefined {
+  if (value === undefined || value === null) {
+    return undefined;
+  }
+
+  const parsed = requireString(value, pathLabel);
+  if (parsed === 'pi' || parsed === 'anthropic-direct' || parsed === 'openai-direct') {
+    return parsed;
+  }
+
+  throw new ConfigValidationError(`${pathLabel} must be one of pi|anthropic-direct|openai-direct`);
 }
 
 function requireNumber(value: unknown, pathLabel: string): number {

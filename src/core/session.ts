@@ -24,8 +24,12 @@ import type { UsageTracker } from './usage.js';
 import type { SSEManager } from '../api/sse.js';
 import type { Notifier } from './notifier.js';
 import { getAgentSessionDir, listPersistedSessions } from './session-files.js';
-import { PiLlmProvider } from './llm/pi-provider.js';
-import type { LlmProvider } from './llm/provider.js';
+import {
+  type LlmProvider,
+  type PiSessionLlmProvider,
+  supportsPiSession,
+} from './llm/provider.js';
+import { createLlmProvider } from './llm/factory.js';
 
 interface QueuedMessage {
   message: string;
@@ -51,7 +55,7 @@ export class SessionManager {
   private readonly cleanupTimer?: NodeJS.Timeout;
   private cleanupAgentAddedListener?: (agent: AgentDefinition) => void;
   private lastCleanupAt = 0;
-  private readonly llmProvider: LlmProvider;
+  private readonly llmProvider: PiSessionLlmProvider;
 
   private sseManager?: SSEManager;
   private notifier?: Notifier;
@@ -63,7 +67,20 @@ export class SessionManager {
     private readonly usageTracker?: UsageTracker,
     llmProvider?: LlmProvider,
   ) {
-    this.llmProvider = llmProvider ?? new PiLlmProvider(this.config.llm.provider);
+    const provider =
+      llmProvider ??
+      createLlmProvider({
+        implementation: this.config.llm.implementation,
+        provider: this.config.llm.provider,
+        auth: this.config.llm.auth,
+      });
+
+    if (!supportsPiSession(provider)) {
+      throw new Error(
+        `LLM implementation "${provider.implementation}" does not support Pi sessions`,
+      );
+    }
+    this.llmProvider = provider;
 
     if (this.config.session.ttlDays > 0) {
       this.cleanupTimer = setInterval(() => {
@@ -363,7 +380,11 @@ export class SessionManager {
             agentName: agentDef?.displayName ?? agent.id,
             error: runtime.state.error ?? 'Unknown error',
             timestamp: new Date(),
-            channel: agentDef?.errorNotificationChannel ?? agent.errorNotificationChannel,
+            channel:
+              agentDef?.notifyChannel ??
+              agentDef?.errorNotificationChannel ??
+              agent.notifyChannel ??
+              agent.errorNotificationChannel,
           });
         }
 
