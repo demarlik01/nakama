@@ -67,14 +67,15 @@
 - [x] 과잉 응답 방지 규칙 강화 (중복 응답/잡담 과개입 방지)
 - [x] 스레드 내 vs 채널 직접 응답 가이드라인
 
-## Phase 6: Proactive 모드 (미래)
+## Phase 6: Proactive 모드
 
 **목표:** 에이전트가 채널을 감시하고 판단해서 끼어드는 모드
 
-- [x] `channelMode: "proactive"` 설정 시 채널 메시지 리스닝
-- [x] 끼어들기 판단 로직 (AGENTS.md 가이드라인 기반)
-- [x] 끼어들 때 새 스레드로 제안 (채널 오염 방지)
-- [x] 토큰 예산 관리 (모든 메시지를 LLM에 보내지 않음)
+- [x] `mode: "proactive"` 설정 시 채널 일반 메시지(non-mention) 리스닝
+- [x] mention 모드 기존 동작 유지 (plain 채널 메시지 무시)
+- [x] 안전 가드: bot/self 메시지 스킵
+- [x] 안전 가드: 채널별 최소 응답 간격 (`limits.proactiveResponseMinIntervalSec`, 기본 60초)
+- [x] 안전 가드: 동일 message ts 중복 응답 방지
 
 ---
 

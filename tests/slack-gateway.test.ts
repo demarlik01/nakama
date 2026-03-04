@@ -269,6 +269,61 @@ describe('SlackGateway thread routing enhancements', () => {
 });
 
 describe('SlackGateway proactive channel guards', () => {
+  it('skips proactive responses for self-originated messages', async () => {
+    const postMessage = vi.fn(async (_payload: Record<string, unknown>) => ({ ok: true }));
+    const handleMessage = vi.fn(async () => 'proactive response');
+    const route = vi.fn().mockReturnValue({
+      type: 'agent',
+      agent: createAgent({
+        id: 'proactive-agent',
+        slackBotUserId: 'B_SELF',
+        channels: { C_PRO: { mode: 'proactive' } },
+      }),
+    });
+
+    const gateway = createGateway(postMessage, {
+      router: { route } as unknown as MessageRouter,
+      sessionManager: { handleMessage } as unknown as SessionManager,
+      registry: { registerThread: vi.fn() } as unknown as AgentRegistry,
+    });
+
+    const client = {
+      chat: { postMessage },
+      reactions: {
+        add: vi.fn(async () => ({ ok: true })),
+        remove: vi.fn(async () => ({ ok: true })),
+      },
+      conversations: {
+        history: vi.fn(async () => ({ messages: [] })),
+      },
+    };
+
+    const say = vi.fn(async () => ({}));
+    await (gateway as unknown as {
+      handleSlackEvent: (
+        rawEvent: Record<string, unknown>,
+        say: (payload: unknown) => Promise<unknown>,
+        client: typeof client,
+        type: string,
+      ) => Promise<void>;
+    }).handleSlackEvent(
+      {
+        channel: 'C_PRO',
+        channel_type: 'channel',
+        text: 'bot replay',
+        user: 'B_SELF',
+        ts: '1710000000.000001',
+      },
+      say,
+      client,
+      'message',
+    );
+
+    expect(handleMessage).not.toHaveBeenCalled();
+    expect(postMessage).not.toHaveBeenCalled();
+    expect(client.reactions.add).not.toHaveBeenCalled();
+  });
+
   it('rate-limits proactive plain channel responses by channel interval', async () => {
     const postMessage = vi.fn(async (_payload: Record<string, unknown>) => ({ ok: true }));
     const handleMessage = vi.fn(async () => 'proactive response');
