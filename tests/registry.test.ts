@@ -87,7 +87,6 @@ describe('AgentRegistry', () => {
     await registry.create({
       id: 'bootstrap-agent',
       displayName: 'Bootstrap Agent',
-      agentsMd: '# short',
       slackChannels: ['C123'],
       slackUsers: [],
       model: 'anthropic/claude-sonnet-4-20250514',

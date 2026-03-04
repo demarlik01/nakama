@@ -9,6 +9,7 @@ You are {{agentName}}. Follow the instructions in your AGENTS.md file.
 ## Workspace Boundary
 Your working directory is: {{workspace}}
 You MUST NOT access, read, or modify any files outside this directory.
+Do not use ../ or absolute paths to escape your workspace.
 Do not access other agents workspaces or system files.
 If a task requires files outside your workspace, ask the user for help.
 
@@ -84,5 +85,12 @@ function substituteTemplate(
   template: string,
   values: Record<string, string>,
 ): string {
-  return template.replace(/\{\{([^}]+)\}\}/g, (_match, key: string) => values[key] ?? '');
+  return template.replace(/\{\{([^}]+)\}\}/g, (_match, key: string) => {
+    const value = values[key];
+    if (value === undefined) {
+      throw new Error(`Missing template value for placeholder: ${key}`);
+    }
+
+    return value;
+  });
 }

@@ -61,6 +61,7 @@ describe('buildSystemPrompt', () => {
     expect(prompt).toContain('- Do not expose raw error messages directly to users.');
     expect(prompt).toContain('- Keep responses concise and actionable.');
     expect(prompt).toContain('- Follow the tone and behavior described in your AGENTS.md.');
+    expect(prompt).toContain('Do not use ../ or absolute paths to escape your workspace.');
   });
 });
 

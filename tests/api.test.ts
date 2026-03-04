@@ -128,23 +128,6 @@ describe('REST API - Agent CRUD', () => {
     expect(agentsMd).toContain('## Boundaries');
   });
 
-  it('auto-generates AGENTS.md when very short content is provided', async () => {
-    const res = await api('POST', '', {
-      id: 'short-md-agent',
-      displayName: 'Short MD Agent',
-      agentsMd: '# Hi',
-      slackChannels: ['C123'],
-      slackUsers: [],
-      model: 'anthropic/claude-sonnet-4-20250514',
-    });
-    expect(res.status).toBe(201);
-
-    const agentsMd = readFileSync(join(tempDir, 'short-md-agent', 'AGENTS.md'), 'utf8');
-    expect(agentsMd).toContain('## Persona');
-    expect(agentsMd).toContain('## Reporting Style');
-    expect(agentsMd).not.toBe('# Hi\n');
-  });
-
   it('updates agent via PATCH', async () => {
     // Create first
     await api('POST', '', {

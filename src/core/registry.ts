@@ -31,8 +31,6 @@ const SKILLS_DIR = 'skills';
 const SKILLS_README_FILE = 'README.md';
 const DOCS_DIR = 'docs';
 const ARCHIVE_DIR = '_archived';
-const MIN_CUSTOM_AGENTS_MD_CHARS = 200;
-const MIN_CUSTOM_AGENTS_MD_LINES = 8;
 
 export class AgentRegistry extends EventEmitter<AgentRegistryEvents> {
   private readonly agents = new Map<string, AgentDefinition>();
@@ -485,9 +483,11 @@ function hasErrorCode(error: unknown, code: string): boolean {
   return typeof error === 'object' && error !== null && 'code' in error && (error as { code?: string }).code === code;
 }
 
+// On create, empty agentsMd gets a default template.
+// On update (PUT/PATCH in agents.ts), provided agentsMd is written as-is since the user is explicitly editing.
 function resolveAgentsMdContent(params: CreateAgentParams): string {
-  const provided = typeof params.agentsMd === 'string' ? params.agentsMd : undefined;
-  if (typeof provided === 'string' && !isVeryShortAgentsMd(provided)) {
+  const provided = params.agentsMd;
+  if (typeof provided === 'string' && provided.trim().length > 0) {
     return provided;
   }
 
@@ -527,27 +527,6 @@ function buildDefaultAgentsMd(params: CreateAgentParams): string {
     '- Include validation steps run (tests/build) and any failures or skips.',
     '- Keep responses concise, concrete, and implementation-focused.',
   ].join('\n');
-}
-
-function isVeryShortAgentsMd(content: string | undefined): boolean {
-  if (typeof content !== 'string') {
-    return true;
-  }
-
-  const trimmed = content.trim();
-  if (trimmed.length === 0) {
-    return true;
-  }
-
-  const nonEmptyLines = trimmed
-    .split('\n')
-    .map((line) => line.trim())
-    .filter((line) => line.length > 0);
-
-  return (
-    trimmed.length < MIN_CUSTOM_AGENTS_MD_CHARS &&
-    nonEmptyLines.length < MIN_CUSTOM_AGENTS_MD_LINES
-  );
 }
 
 async function initializeMemoryFiles(workspacePath: string): Promise<void> {
