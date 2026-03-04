@@ -68,9 +68,8 @@
 ```
 
 - [ ] `ChannelConfig` 타입 정의: `{ mode: "mention" | "proactive" }`
-- [ ] `agent.json` 로드 시 `slackChannels` → `channels` 자동 마이그레이션
-- [ ] 새 에이전트는 `channels` 형식으로 생성
-- [ ] `findBySlackChannel()` 등 기존 API 호환 유지
+- [ ] `slackChannels: string[]` → `channels: Record<string, ChannelConfig>`로 스키마 변경
+- [ ] `findBySlackChannel()` 등 내부 API 업데이트
 - [ ] Web UI 채널 설정 UI 업데이트
 
 ## Phase 2: 컨시어지 (라우터 fallback)
@@ -129,4 +128,4 @@
 
 - 각 Phase는: 구현 → Codex 리뷰 → 빌드/테스트 → 커밋
 - 위험 변경(마이그레이션/스키마 변경)은 사전 보고
-- 기존 `slackChannels` 하위호환 필수
+- 운영 에이전트 없으므로 마이그레이션 불필요 — 스키마 직접 변경
