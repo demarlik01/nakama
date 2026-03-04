@@ -2,10 +2,7 @@
  * Markdown → Slack Block Kit converter.
  */
 
-export interface SlackBlock {
-  type: string;
-  [key: string]: unknown;
-}
+import type { SlackBlock } from '../types.js';
 
 const BLOCK_TEXT_LIMIT = 3000;
 

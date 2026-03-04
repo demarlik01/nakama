@@ -1,4 +1,4 @@
-import type { AgentDefinition, MessageRouteResult, SlackMessageEvent } from '../types.js';
+import type { AgentDefinition, MessageRouteResult, SlackBlock, SlackMessageEvent } from '../types.js';
 import { createLogger, type Logger } from '../utils/logger.js';
 import type { AgentRegistry } from './registry.js';
 import type { SessionManager } from './session.js';
@@ -18,13 +18,13 @@ export class MessageRouter {
       if (bySession !== undefined) {
         const sessionAgent = this.registry.getById(bySession);
         if (sessionAgent !== undefined) {
-          return { agent: sessionAgent, threadTs };
+          return { type: 'agent', agent: sessionAgent, threadTs };
         }
       }
 
       const byRegistry = this.registry.findByThread(threadTs);
       if (byRegistry !== undefined) {
-        return { agent: byRegistry, threadTs };
+        return { type: 'agent', agent: byRegistry, threadTs };
       }
     }
 
@@ -34,13 +34,13 @@ export class MessageRouter {
         this.registry.getAll().filter((agent) => agent.enabled),
       );
       if (byAgentName.type === 'match') {
-        return { agent: byAgentName.agent, threadTs };
+        return { type: 'agent', agent: byAgentName.agent, threadTs };
       }
 
       if (event.botUserId !== undefined) {
         const byBotUserId = this.registry.findByBotUserId(event.botUserId);
         if (byBotUserId !== undefined) {
-          return { agent: byBotUserId, threadTs };
+          return { type: 'agent', agent: byBotUserId, threadTs };
         }
       }
 
@@ -49,7 +49,6 @@ export class MessageRouter {
           text: event.text,
           candidateIds: byAgentName.candidateIds,
         });
-        return null;
       }
     }
 
@@ -57,21 +56,35 @@ export class MessageRouter {
     if (channelType === 'im' && event.user !== undefined) {
       const byDm = this.registry.findBySlackUser(event.user);
       if (byDm !== undefined) {
-        return { agent: byDm, threadTs };
+        return { type: 'agent', agent: byDm, threadTs };
       }
     }
 
+    let channelAgents: AgentDefinition[] = [];
     if (event.channel !== undefined) {
       const channelId = event.channel;
-      const channelAgents = this.registry.findBySlackChannel(channelId);
+      channelAgents = this.registry.findBySlackChannel(channelId);
       const routableChannelAgents =
         event.type === 'message'
           ? channelAgents.filter((agent) => getChannelMode(agent, channelId) === 'proactive')
           : channelAgents;
       const selected = this.selectChannelAgent(routableChannelAgents, event.user, event.text);
       if (selected !== undefined) {
-        return { agent: selected, threadTs };
+        return { type: 'agent', agent: selected, threadTs };
       }
+    }
+
+    if (
+      event.channel !== undefined &&
+      channelType !== 'im' &&
+      (event.type === 'message' || event.type === 'app_mention') &&
+      channelAgents.length === 0
+    ) {
+      return {
+        type: 'concierge',
+        response: buildConciergeResponse(this.registry),
+        threadTs,
+      };
     }
 
     this.logger.debug('No agent route for Slack event', {
@@ -179,6 +192,49 @@ export class MessageRouter {
 
     return { type: 'match', agent: bestMatch.agent };
   }
+}
+
+export function buildConciergeResponse(registry: AgentRegistry): SlackBlock[] {
+  const availableAgents = registry.getAll().filter((agent) => agent.enabled);
+  const listedAgents =
+    availableAgents.length === 0
+      ? '• (사용 가능한 에이전트가 없습니다)'
+      : availableAgents
+          .map((agent) => {
+            const description = agent.description?.trim();
+            const details =
+              description !== undefined && description.length > 0
+                ? description
+                : '설명 없음';
+            return `• *${agent.displayName}* (\`${agent.id}\`) - ${details}`;
+          })
+          .join('\n');
+
+  return [
+    {
+      type: 'section',
+      text: {
+        type: 'mrkdwn',
+        text: '이 채널에 배정된 에이전트가 없습니다.',
+      },
+    },
+    {
+      type: 'section',
+      text: {
+        type: 'mrkdwn',
+        text: `*사용 가능한 에이전트 목록*\n${listedAgents}`,
+      },
+    },
+    {
+      type: 'context',
+      elements: [
+        {
+          type: 'mrkdwn',
+          text: '/assign {agent} 명령어로 에이전트를 배정하세요',
+        },
+      ],
+    },
+  ];
 }
 
 type MentionMatch =

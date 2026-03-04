@@ -104,8 +104,6 @@ export interface CreateAgentParams {
   errorNotificationChannel?: string;
   agentsMd?: string;
   channels: Record<string, ChannelConfig>;
-  // Deprecated alias; kept for backward compatibility.
-  slackChannels?: string[];
   slackUsers: string[];
   model?: string;
   enabled?: boolean;
@@ -125,8 +123,6 @@ export interface UpdateAgentParams {
   // Deprecated alias; kept for backward compatibility.
   errorNotificationChannel?: string;
   channels?: Record<string, ChannelConfig>;
-  // Deprecated alias; kept for backward compatibility.
-  slackChannels?: string[];
   slackUsers?: string[];
   slackBotUserId?: string;
   model?: string;
@@ -168,10 +164,22 @@ export interface SlackMessageEvent {
   botUserId?: string;
 }
 
-export interface MessageRouteResult {
-  agent: AgentDefinition;
-  threadTs?: string;
+export interface SlackBlock {
+  type: string;
+  [key: string]: unknown;
 }
+
+export type MessageRouteResult =
+  | {
+      type: 'agent';
+      agent: AgentDefinition;
+      threadTs?: string;
+    }
+  | {
+      type: 'concierge';
+      response: SlackBlock[];
+      threadTs?: string;
+    };
 
 export interface AgentRegistryEvents {
   'agent:added': [agent: AgentDefinition];

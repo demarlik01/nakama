@@ -6,7 +6,7 @@ import { pipeline } from 'node:stream/promises';
 import { Readable } from 'node:stream';
 import { join, basename } from 'node:path';
 
-import type { AgentDefinition, AppConfig, SlackMessageEvent } from '../types.js';
+import type { AgentDefinition, AppConfig, SlackBlock, SlackMessageEvent } from '../types.js';
 import { createLogger, type Logger } from '../utils/logger.js';
 import type { MessageRouter } from '../core/router.js';
 import { markdownToBlocks, markdownToPlainText, splitBlocksForSlack } from './block-kit.js';
@@ -15,6 +15,7 @@ import type { SessionManager } from '../core/session.js';
 
 interface SayPayload {
   text: string;
+  blocks?: SlackBlock[];
   thread_ts?: string;
 }
 
@@ -193,8 +194,14 @@ export class SlackGateway {
       return;
     }
 
-    const incomingThreadTs = normalized.threadTs ?? normalized.thread_ts;
+    const incomingThreadTs = route.threadTs ?? normalized.threadTs ?? normalized.thread_ts;
     const threadTs = incomingThreadTs ?? inferThreadTs(rawEvent);
+
+    if (route.type === 'concierge') {
+      await this.replyBlocksToSlack(client, say, normalized.channel, route.response, threadTs);
+      return;
+    }
+
     const channel = normalized.channel ?? '';
     const messageTs = asOptionalString(rawEvent.ts);
 
@@ -505,6 +512,36 @@ ${originalMessage.text}`,
         }
       }
     }
+  }
+
+  private async replyBlocksToSlack(
+    client: WebClient,
+    say: SayLike,
+    channelId: string | undefined,
+    blocks: SlackBlock[],
+    threadTs?: string,
+  ): Promise<void> {
+    const payload: {
+      text: string;
+      blocks: SlackBlock[];
+      thread_ts?: string;
+    } = {
+      text: '이 채널에 배정된 에이전트가 없습니다.',
+      blocks,
+    };
+    if (threadTs !== undefined) {
+      payload.thread_ts = threadTs;
+    }
+
+    if (channelId !== undefined) {
+      await this.postMessageWithIdentityFallback(client, {
+        channel: channelId,
+        ...payload,
+      }, {});
+      return;
+    }
+
+    await say(payload);
   }
 
   private async postMessageWithIdentityFallback(

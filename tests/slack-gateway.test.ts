@@ -27,7 +27,13 @@ function createAgent(overrides: Partial<AgentDefinition> = {}): AgentDefinition 
   };
 }
 
-function createGateway(postMessageImpl: (payload: Record<string, unknown>) => Promise<unknown>): SlackGateway {
+function createGateway(
+  postMessageImpl: (payload: Record<string, unknown>) => Promise<unknown>,
+  overrides?: {
+    router?: MessageRouter;
+    sessionManager?: SessionManager;
+  },
+): SlackGateway {
   const config: AppConfig = {
     server: { port: 0 },
     slack: { appToken: 'xapp-test', botToken: 'xoxb-test' },
@@ -37,8 +43,8 @@ function createGateway(postMessageImpl: (payload: Record<string, unknown>) => Pr
     api: { enabled: false, port: 0 },
   };
 
-  const router = {} as MessageRouter;
-  const sessionManager = {} as SessionManager;
+  const router = overrides?.router ?? ({} as MessageRouter);
+  const sessionManager = overrides?.sessionManager ?? ({} as SessionManager);
   const gateway = new SlackGateway(config, router, sessionManager, createLogger('slack-gateway-test'));
 
   (gateway as unknown as { app: { client: { chat: { postMessage: typeof postMessageImpl } } } }).app = {
@@ -106,5 +112,66 @@ describe('SlackGateway identity override behavior', () => {
     const payload = postMessage.mock.calls[0]?.[0] as Record<string, unknown>;
     expect(payload.username).toBe('AgentBot');
     expect(payload.icon_emoji).toBeUndefined();
+  });
+});
+
+describe('SlackGateway concierge fallback handling', () => {
+  it('posts concierge blocks directly without creating a session', async () => {
+    const postMessage = vi.fn(async (_payload: Record<string, unknown>) => ({ ok: true }));
+    const handleMessage = vi.fn();
+    const route = vi.fn().mockReturnValue({
+      type: 'concierge',
+      response: [
+        {
+          type: 'section',
+          text: {
+            type: 'mrkdwn',
+            text: 'fallback',
+          },
+        },
+      ],
+    });
+
+    const gateway = createGateway(postMessage, {
+      router: { route } as unknown as MessageRouter,
+      sessionManager: { handleMessage } as unknown as SessionManager,
+    });
+
+    const client = (gateway as unknown as { app: { client: { chat: { postMessage: typeof postMessage } } } }).app.client;
+    const say = vi.fn(async () => ({}));
+    await (gateway as unknown as {
+      handleSlackEvent: (
+        rawEvent: Record<string, unknown>,
+        say: (payload: unknown) => Promise<unknown>,
+        client: { chat: { postMessage: typeof postMessage } },
+        type: string,
+      ) => Promise<void>;
+    }).handleSlackEvent(
+      {
+        channel: 'C_UNMAPPED',
+        channel_type: 'channel',
+        text: 'hello',
+        user: 'U123',
+        ts: '1710000000.000001',
+      },
+      say,
+      client,
+      'message',
+    );
+
+    expect(route).toHaveBeenCalledTimes(1);
+    expect(handleMessage).not.toHaveBeenCalled();
+    expect(postMessage).toHaveBeenCalledTimes(1);
+    const payload = postMessage.mock.calls[0]?.[0] as Record<string, unknown>;
+    expect(payload.channel).toBe('C_UNMAPPED');
+    expect(payload.blocks).toEqual([
+      {
+        type: 'section',
+        text: {
+          type: 'mrkdwn',
+          text: 'fallback',
+        },
+      },
+    ]);
   });
 });
