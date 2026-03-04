@@ -81,7 +81,55 @@
 - [ ] 필터링 시 로그 기록
 - [ ] 테스트: "stays silent" 응답 → 슬랙에 안 보냄
 
-## Phase 4: (예비) 추가 발견 사항
+## Phase 4: 디버그 로깅 강화
+
+**목표:** 테스트/디버깅 시 메시지 흐름 전체를 추적 가능하게
+
+**현재 문제:**
+- 로그에 `messageLength: 378` 만 찍힘 — 실제 내용 안 보임
+- LLM 응답도 로그에 없음 → 문제 재현/분석 불가
+
+**구현 방안:**
+- `LOG_LEVEL=debug` 일 때:
+  - 유저 → LLM 메시지 전문 (메타데이터 포함)
+  - LLM → 슬랙 응답 전문
+  - 응답 필터링 결과 (NO_REPLY 감지 등)
+  - 시스템 프롬프트 (세션 최초 생성 시 1회)
+- `LOG_LEVEL=info` (기본): 현재처럼 길이만
+
+**체크리스트:**
+- [ ] session.ts `handleMessage()`에서 debug 레벨 로깅 추가 (inbound message)
+- [ ] LLM 응답 debug 로깅 (outbound response)
+- [ ] 응답 필터 결과 로깅 (filtered=true/false, reason)
+- [ ] 시스템 프롬프트 debug 로깅 (세션 생성 시)
+- [ ] config.yaml에 `log.level: debug` 옵션 지원 확인
+
+## Phase 5: 커스텀 툴 확장
+
+**목표:** 에이전트에 웹검색/브라우저 같은 추가 도구 제공
+
+**현재 상태:**
+- Pi SDK `codingTools` = read, write, edit, bash 만 제공
+- 웹검색, URL fetch, 브라우저 없음
+
+**구현 방안:**
+- Pi SDK 커스텀 Tool 인터페이스로 추가 도구 정의:
+  - `web_search` — Brave Search / Tavily API
+  - `web_fetch` — URL → 마크다운 추출
+- agent.json에서 사용할 도구 세트 선택 가능하게:
+  ```json
+  "tools": ["coding", "web_search", "web_fetch"]
+  ```
+- 기본값: `["coding"]` (기존 동작 유지)
+
+**체크리스트:**
+- [ ] Pi SDK Tool 인터페이스 확인 및 커스텀 툴 타입 정의
+- [ ] `web_search` 툴 구현 (API 키 config.yaml에서 관리)
+- [ ] `web_fetch` 툴 구현
+- [ ] agent.json `tools` 필드 추가 + 레지스트리에서 도구 세트 조합
+- [ ] 테스트: 에이전트가 웹검색 요청 → 결과 반환
+
+## Phase 6: (예비) 추가 발견 사항
 
 > 테스트 중 발견되는 추가 이슈 여기에 Phase로 추가
 
