@@ -23,6 +23,7 @@ export interface LimitsConfig {
   maxConcurrentSessions?: number;
   dailyTokenLimit?: number;
   maxMessageLength?: number;
+  proactiveResponseMinIntervalSec?: number;
 }
 
 export type ChannelMode = 'mention' | 'proactive';

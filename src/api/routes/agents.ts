@@ -420,6 +420,10 @@ function asUpdateAgentParams(value: unknown): UpdateAgentParams {
           l.maxMessageLength,
           'limits.maxMessageLength',
         ),
+        proactiveResponseMinIntervalSec: asOptionalNonNegativeInteger(
+          l.proactiveResponseMinIntervalSec,
+          'limits.proactiveResponseMinIntervalSec',
+        ),
       };
     }
   }

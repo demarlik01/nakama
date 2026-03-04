@@ -267,3 +267,122 @@ describe('SlackGateway thread routing enhancements', () => {
     expect(threadedPayload).toBeDefined();
   });
 });
+
+describe('SlackGateway proactive channel guards', () => {
+  it('rate-limits proactive plain channel responses by channel interval', async () => {
+    const postMessage = vi.fn(async (_payload: Record<string, unknown>) => ({ ok: true }));
+    const handleMessage = vi.fn(async () => 'proactive response');
+    const route = vi.fn().mockReturnValue({
+      type: 'agent',
+      agent: createAgent({
+        id: 'proactive-agent',
+        channels: { C_PRO: { mode: 'proactive' } },
+      }),
+    });
+
+    const gateway = createGateway(postMessage, {
+      router: { route } as unknown as MessageRouter,
+      sessionManager: { handleMessage } as unknown as SessionManager,
+      registry: { registerThread: vi.fn() } as unknown as AgentRegistry,
+    });
+
+    const client = {
+      chat: { postMessage },
+      reactions: {
+        add: vi.fn(async () => ({ ok: true })),
+        remove: vi.fn(async () => ({ ok: true })),
+      },
+      conversations: {
+        history: vi.fn(async () => ({ messages: [] })),
+      },
+    };
+
+    const say = vi.fn(async () => ({}));
+    const invoke = (ts: string) =>
+      (gateway as unknown as {
+        handleSlackEvent: (
+          rawEvent: Record<string, unknown>,
+          say: (payload: unknown) => Promise<unknown>,
+          client: typeof client,
+          type: string,
+        ) => Promise<void>;
+      }).handleSlackEvent(
+        {
+          channel: 'C_PRO',
+          channel_type: 'channel',
+          text: '새 이슈 왔어, 확인해줘',
+          user: 'U123',
+          ts,
+        },
+        say,
+        client,
+        'message',
+      );
+
+    await invoke('1710000000.000001');
+    await invoke('1710000000.000002');
+
+    expect(handleMessage).toHaveBeenCalledTimes(1);
+  });
+
+  it('skips duplicate proactive responses for the same message ts', async () => {
+    const postMessage = vi.fn(async (_payload: Record<string, unknown>) => ({ ok: true }));
+    const handleMessage = vi.fn(async () => 'proactive response');
+    const route = vi.fn().mockReturnValue({
+      type: 'agent',
+      agent: createAgent({
+        id: 'proactive-agent',
+        channels: { C_PRO: { mode: 'proactive' } },
+        limits: {
+          proactiveResponseMinIntervalSec: 0,
+        },
+      }),
+    });
+
+    const gateway = createGateway(postMessage, {
+      router: { route } as unknown as MessageRouter,
+      sessionManager: { handleMessage } as unknown as SessionManager,
+      registry: { registerThread: vi.fn() } as unknown as AgentRegistry,
+    });
+
+    const client = {
+      chat: { postMessage },
+      reactions: {
+        add: vi.fn(async () => ({ ok: true })),
+        remove: vi.fn(async () => ({ ok: true })),
+      },
+      conversations: {
+        history: vi.fn(async () => ({ messages: [] })),
+      },
+    };
+
+    const say = vi.fn(async () => ({}));
+    const rawEvent = {
+      channel: 'C_PRO',
+      channel_type: 'channel',
+      text: '중복 이벤트 테스트',
+      user: 'U123',
+      ts: '1710000000.000001',
+    };
+
+    await (gateway as unknown as {
+      handleSlackEvent: (
+        rawEvent: Record<string, unknown>,
+        say: (payload: unknown) => Promise<unknown>,
+        client: typeof client,
+        type: string,
+      ) => Promise<void>;
+    }).handleSlackEvent(rawEvent, say, client, 'message');
+
+    await (gateway as unknown as {
+      handleSlackEvent: (
+        rawEvent: Record<string, unknown>,
+        say: (payload: unknown) => Promise<unknown>,
+        client: typeof client,
+        type: string,
+      ) => Promise<void>;
+    }).handleSlackEvent(rawEvent, say, client, 'message');
+
+    expect(handleMessage).toHaveBeenCalledTimes(1);
+  });
+});

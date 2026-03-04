@@ -26,6 +26,8 @@ type SayLike = (message: string | SayPayload) => Promise<unknown>;
 export class SlackGateway {
   private app?: App;
   private connected = false;
+  private readonly proactiveLastResponseAtByChannel = new Map<string, number>();
+  private readonly proactiveSeenMessageKeys = new Set<string>();
 
   constructor(
     private readonly config: AppConfig,
@@ -221,6 +223,20 @@ export class SlackGateway {
     const channel = normalized.channel ?? '';
     const messageTs = asOptionalString(rawEvent.ts);
 
+    const isProactiveChannelMessage =
+      type === 'message' &&
+      normalized.channelType !== 'im' &&
+      normalized.threadTs === undefined &&
+      normalized.thread_ts === undefined &&
+      channel.length > 0 &&
+      getAgentChannelMode(route.agent, channel) === 'proactive';
+
+    if (isProactiveChannelMessage) {
+      if (this.shouldSkipProactiveMessage(rawEvent, normalized, route.agent, channel, messageTs)) {
+        return;
+      }
+    }
+
     // 👀 Reaction: acknowledge receipt
     if (channel && messageTs) {
       await addReaction(client, channel, messageTs, 'eyes').catch((err) => {
@@ -299,6 +315,73 @@ export class SlackGateway {
         });
       });
     }
+  }
+
+  private shouldSkipProactiveMessage(
+    rawEvent: Record<string, unknown>,
+    normalized: SlackMessageEvent,
+    agent: AgentDefinition,
+    channelId: string,
+    messageTs: string | undefined,
+  ): boolean {
+    if (this.isBotOrSelfMessage(rawEvent, normalized, agent)) {
+      this.logger.debug('Skipping proactive route for bot/self message', {
+        channelId,
+        user: normalized.user,
+      });
+      return true;
+    }
+
+    const messageKey =
+      messageTs !== undefined && messageTs.length > 0 ? `${channelId}:${messageTs}` : undefined;
+    if (messageKey !== undefined && this.proactiveSeenMessageKeys.has(messageKey)) {
+      this.logger.debug('Skipping proactive route for duplicate message ts', {
+        channelId,
+        messageTs,
+      });
+      return true;
+    }
+
+    const now = Date.now();
+    const minIntervalSec = getProactiveMinIntervalSec(agent);
+    const minIntervalMs = minIntervalSec * 1000;
+    const lastAt = this.proactiveLastResponseAtByChannel.get(channelId);
+
+    if (lastAt !== undefined && now - lastAt < minIntervalMs) {
+      this.logger.debug('Skipping proactive route due to minimum interval guard', {
+        channelId,
+        minIntervalSec,
+        elapsedMs: now - lastAt,
+      });
+      return true;
+    }
+
+    this.proactiveLastResponseAtByChannel.set(channelId, now);
+    if (messageKey !== undefined) {
+      this.proactiveSeenMessageKeys.add(messageKey);
+    }
+    return false;
+  }
+
+  private isBotOrSelfMessage(
+    rawEvent: Record<string, unknown>,
+    normalized: SlackMessageEvent,
+    agent: AgentDefinition,
+  ): boolean {
+    const subtype = asOptionalString(rawEvent.subtype);
+    if (subtype === 'bot_message') {
+      return true;
+    }
+
+    if (asOptionalString(rawEvent.bot_id) !== undefined) {
+      return true;
+    }
+
+    if (agent.slackBotUserId !== undefined && normalized.user === agent.slackBotUserId) {
+      return true;
+    }
+
+    return false;
   }
 
   private async buildRecentChannelContext(
@@ -673,6 +756,7 @@ const SLACK_MAX_MESSAGE_LENGTH = 4000;
 const RECENT_CHANNEL_CONTEXT_FETCH_LIMIT = 10;
 const RECENT_CHANNEL_CONTEXT_LINE_LIMIT = 8;
 const RECENT_CHANNEL_CONTEXT_TEXT_LIMIT = 280;
+const DEFAULT_PROACTIVE_RESPONSE_MIN_INTERVAL_SEC = 60;
 
 async function addReaction(
   client: WebClient,
@@ -827,6 +911,19 @@ function parseMentionedBotUserId(text: string | undefined): string | undefined {
 
 function asOptionalString(value: unknown): string | undefined {
   return typeof value === 'string' ? value : undefined;
+}
+
+function getAgentChannelMode(agent: AgentDefinition, channelId: string): 'mention' | 'proactive' {
+  return agent.channels[channelId]?.mode ?? 'mention';
+}
+
+function getProactiveMinIntervalSec(agent: AgentDefinition): number {
+  const value = agent.limits?.proactiveResponseMinIntervalSec;
+  if (typeof value === 'number' && Number.isFinite(value) && value >= 0) {
+    return Math.floor(value);
+  }
+
+  return DEFAULT_PROACTIVE_RESPONSE_MIN_INTERVAL_SEC;
 }
 
 const IDENTITY_OVERRIDE_RETRYABLE_ERRORS = new Set([
