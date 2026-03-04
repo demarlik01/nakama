@@ -105,8 +105,10 @@ describe('AgentRegistry', () => {
 
     expect(agentsMd).toContain('## Persona');
     expect(agentsMd).toContain('## Boundaries');
-    expect(agentsMd).toContain('## When To Speak');
-    expect(agentsMd).toContain('## Response Behavior');
+    expect(agentsMd).toContain('## DM vs Group Policy');
+    expect(agentsMd).toContain('## Response Decision Checklist');
+    expect(agentsMd).toContain('## Anti-Overresponse Rules');
+    expect(agentsMd).toContain('## Thread vs Channel Response Guidance');
     expect(agentsMd).toContain('## Reporting Style');
 
     expect(memoryMd).toContain('# MEMORY');
