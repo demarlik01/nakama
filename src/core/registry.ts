@@ -128,7 +128,7 @@ export class AgentRegistry extends EventEmitter<AgentRegistryEvents> {
     if (this.agents.has(id)) {
       throw new ConflictError(`Agent already exists: ${id}`);
     }
-    const channels = resolveChannels(params.channels, params.slackChannels);
+    const channels = asChannelMap(params.channels, 'channels');
 
     const workspacePath = path.join(this.workspacesRoot, id);
     await mkdir(workspacePath, { recursive: false });
@@ -216,11 +216,7 @@ export class AgentRegistry extends EventEmitter<AgentRegistryEvents> {
         : hasNotifyChannel
           ? undefined
           : currentMetadata.errorNotificationChannel,
-      channels: resolveChannels(
-        params.channels,
-        params.slackChannels,
-        currentMetadata.channels,
-      ),
+      channels: resolveChannels(params.channels, currentMetadata.channels),
       slackUsers: params.slackUsers ?? currentMetadata.slackUsers,
       slackBotUserId: params.slackBotUserId ?? currentMetadata.slackBotUserId,
       model: params.model ?? currentMetadata.model,
@@ -620,9 +616,7 @@ async function readJsonIfExists(filePath: string): Promise<AgentMetadata | null>
       throw new Error('agent.json must be an object');
     }
 
-    const channels = parsed.channels === undefined
-      ? channelMapFromIds(asOptionalStringArray(parsed.slackChannels, 'slackChannels') ?? [])
-      : asChannelMap(parsed.channels, 'channels');
+    const channels = asChannelMap(parsed.channels, 'channels');
 
     const metadata: AgentMetadata = {
       displayName: asString(parsed.displayName, 'displayName'),
@@ -758,13 +752,6 @@ function asStringArray(value: unknown, label: string): string[] {
   return out;
 }
 
-function asOptionalStringArray(value: unknown, label: string): string[] | undefined {
-  if (value === undefined || value === null) {
-    return undefined;
-  }
-  return asStringArray(value, label);
-}
-
 function asChannelMap(value: unknown, label: string): Record<string, ChannelConfig> {
   if (!isObject(value)) {
     throw new Error(`${label} must be an object`);
@@ -797,28 +784,12 @@ function asChannelMode(value: unknown, label: string): ChannelConfig['mode'] {
   return value;
 }
 
-function channelMapFromIds(channelIds: string[]): Record<string, ChannelConfig> {
-  const channels: Record<string, ChannelConfig> = {};
-  for (const rawChannelId of channelIds) {
-    const channelId = rawChannelId.trim();
-    if (channelId.length === 0) {
-      continue;
-    }
-    channels[channelId] = { mode: 'mention' };
-  }
-  return channels;
-}
-
 function resolveChannels(
   channels?: Record<string, ChannelConfig>,
-  legacySlackChannels?: string[],
   fallbackChannels: Record<string, ChannelConfig> = {},
 ): Record<string, ChannelConfig> {
   if (channels !== undefined) {
     return asChannelMap(channels, 'channels');
-  }
-  if (legacySlackChannels !== undefined) {
-    return channelMapFromIds(legacySlackChannels);
   }
   return asChannelMap(fallbackChannels, 'channels');
 }

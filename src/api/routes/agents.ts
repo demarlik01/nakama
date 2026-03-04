@@ -337,12 +337,7 @@ function asCreateAgentParams(value: unknown): CreateAgentParams {
     body.errorNotificationChannel,
     'errorNotificationChannel',
   );
-  const channels = asOptionalChannelMap(body.channels, 'channels');
-  const legacySlackChannels = asOptionalStringArray(body.slackChannels, 'slackChannels') ?? [];
-  const normalizedChannels = channels ?? channelMapFromIds(legacySlackChannels);
-  if (Object.keys(normalizedChannels).length === 0) {
-    throw new RequestValidationError('channels must contain at least one item');
-  }
+  const channels = asChannelMap(body.channels, 'channels');
 
   return {
     id: asString(body.id, 'id'),
@@ -353,7 +348,7 @@ function asCreateAgentParams(value: unknown): CreateAgentParams {
     notifyChannel: notifyChannel ?? legacyNotifyChannel,
     errorNotificationChannel: legacyNotifyChannel,
     agentsMd: asOptionalString(body.agentsMd, 'agentsMd'),
-    channels: normalizedChannels,
+    channels,
     slackUsers: asOptionalStringArray(body.slackUsers, 'slackUsers') ?? [],
     model: asString(body.model, 'model'),
   };
@@ -388,12 +383,8 @@ function asUpdateAgentParams(value: unknown): UpdateAgentParams {
       'errorNotificationChannel',
     );
   }
-  if ('channels' in body || 'slackChannels' in body) {
-    const channels = 'channels' in body ? asChannelMap(body.channels, 'channels') : undefined;
-    const legacySlackChannels = 'slackChannels' in body
-      ? asStringArray(body.slackChannels, 'slackChannels')
-      : undefined;
-    payload.channels = channels ?? channelMapFromIds(legacySlackChannels ?? []);
+  if ('channels' in body) {
+    payload.channels = asChannelMap(body.channels, 'channels');
   }
   if ('slackUsers' in body) {
     payload.slackUsers = asStringArray(body.slackUsers, 'slackUsers');
@@ -522,16 +513,6 @@ function asStringArray(value: unknown, label: string): string[] {
   return result;
 }
 
-function asOptionalChannelMap(
-  value: unknown,
-  label: string,
-): Record<string, ChannelConfig> | undefined {
-  if (value === undefined || value === null) {
-    return undefined;
-  }
-  return asChannelMap(value, label);
-}
-
 function asChannelMap(value: unknown, label: string): Record<string, ChannelConfig> {
   const record = asObject(value, label);
   const channels: Record<string, ChannelConfig> = {};
@@ -558,18 +539,6 @@ function asChannelMode(value: unknown, label: string): ChannelConfig['mode'] {
     throw new RequestValidationError(`${label} must be "mention" or "proactive"`);
   }
   return value;
-}
-
-function channelMapFromIds(channelIds: string[]): Record<string, ChannelConfig> {
-  const channels: Record<string, ChannelConfig> = {};
-  for (const rawChannelId of channelIds) {
-    const channelId = rawChannelId.trim();
-    if (channelId.length === 0) {
-      continue;
-    }
-    channels[channelId] = { mode: 'mention' };
-  }
-  return channels;
 }
 
 function asOptionalStringArray(value: unknown, label: string): string[] | undefined {

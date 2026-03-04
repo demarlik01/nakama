@@ -2,15 +2,19 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { mkdtempSync, writeFileSync, mkdirSync, rmSync, existsSync, readFileSync } from 'fs';
 import { join } from 'path';
 import { tmpdir } from 'os';
+import net from 'net';
 import express from 'express';
 import { createAgentsRouter } from '../src/api/routes/agents.js';
 import { AgentRegistry } from '../src/core/registry.js';
 import { SessionManager } from '../src/core/session.js';
 import { createLogger } from '../src/utils/logger.js';
-import type { AppConfig, SessionState } from '../src/types.js';
+import type { SessionState } from '../src/types.js';
 import http from 'http';
 
-describe('REST API - Agent CRUD', () => {
+const canBindSocket = await supportsSocketBinding();
+const describeApi = canBindSocket ? describe : describe.skip;
+
+describeApi('REST API - Agent CRUD', () => {
   let tempDir: string;
   let registry: AgentRegistry;
   let app: express.Application;
@@ -33,10 +37,10 @@ describe('REST API - Agent CRUD', () => {
     app.use('/api/agents', createAgentsRouter({ registry, sessionManager: mockSessionManager, logger }));
 
     await new Promise<void>((resolve) => {
-      server = app.listen(0, () => {
+      server = app.listen(0, '127.0.0.1', () => {
         const addr = server.address();
         if (addr !== null && typeof addr === 'object') {
-          baseUrl = `http://localhost:${addr.port}`;
+          baseUrl = `http://127.0.0.1:${addr.port}`;
         }
         resolve();
       });
@@ -45,7 +49,9 @@ describe('REST API - Agent CRUD', () => {
 
   afterEach(async () => {
     await registry?.stop();
-    server?.close();
+    await new Promise<void>((resolve) => {
+      server?.close(() => resolve());
+    });
     rmSync(tempDir, { recursive: true, force: true });
   });
 
@@ -74,6 +80,34 @@ describe('REST API - Agent CRUD', () => {
     expect(existsSync(join(tempDir, 'new-agent', 'skills', 'README.md'))).toBe(true);
   });
 
+  it('rejects create payloads that only provide legacy slackChannels', async () => {
+    const res = await api('POST', '', {
+      id: 'legacy-channel-agent',
+      displayName: 'Legacy Channel Agent',
+      slackChannels: ['C_LEGACY_A', 'C_LEGACY_B'],
+      slackUsers: [],
+      model: 'anthropic/claude-sonnet-4-20250514',
+    });
+    expect(res.status).toBe(400);
+  });
+
+  it('ignores legacy slackChannels when channels are provided', async () => {
+    const res = await api('POST', '', {
+      id: 'channels-priority-agent',
+      displayName: 'Channels Priority Agent',
+      channels: { C_PRIMARY: { mode: 'proactive' } },
+      slackChannels: ['C_LEGACY'],
+      slackUsers: [],
+      model: 'anthropic/claude-sonnet-4-20250514',
+    });
+    expect(res.status).toBe(201);
+
+    const data = await res.json() as { agent: { channels: Record<string, { mode: string }> } };
+    expect(data.agent.channels).toEqual({
+      C_PRIMARY: { mode: 'proactive' },
+    });
+  });
+
   it('lists agents via GET', async () => {
     // Create agent first
     const agentDir = join(tempDir, 'list-agent');
@@ -94,17 +128,19 @@ describe('REST API - Agent CRUD', () => {
     newApp.use('/api/agents', createAgentsRouter({ registry, sessionManager: mockSessionManager, logger }));
 
     const newServer = await new Promise<http.Server>((resolve) => {
-      const s = newApp.listen(0, () => resolve(s));
+      const s = newApp.listen(0, '127.0.0.1', () => resolve(s));
     });
     const addr = newServer.address();
-    const url = addr !== null && typeof addr === 'object' ? `http://localhost:${addr.port}` : '';
+    const url = addr !== null && typeof addr === 'object' ? `http://127.0.0.1:${addr.port}` : '';
 
     const res = await fetch(`${url}/api/agents`);
     expect(res.status).toBe(200);
     const data = await res.json() as { agents: unknown[] };
     expect(data.agents.length).toBeGreaterThanOrEqual(1);
 
-    newServer.close();
+    await new Promise<void>((resolve) => {
+      newServer.close(() => resolve());
+    });
   });
 
   it('returns 404 for unknown agent', async () => {
@@ -128,6 +164,34 @@ describe('REST API - Agent CRUD', () => {
     expect(agentsMd).toContain('## Boundaries');
   });
 
+  it('defaults channel mode to mention when omitted in create payload', async () => {
+    const res = await api('POST', '', {
+      id: 'default-mode-agent',
+      displayName: 'Default Mode Agent',
+      channels: { C123: {} },
+      slackUsers: [],
+      model: 'anthropic/claude-sonnet-4-20250514',
+    });
+    expect(res.status).toBe(201);
+
+    const data = await res.json() as { agent: { channels: Record<string, { mode: string }> } };
+    expect(data.agent.channels).toEqual({ C123: { mode: 'mention' } });
+  });
+
+  it('accepts empty channels objects for unassigned agents', async () => {
+    const res = await api('POST', '', {
+      id: 'no-channel-agent',
+      displayName: 'No Channel Agent',
+      channels: {},
+      slackUsers: [],
+      model: 'anthropic/claude-sonnet-4-20250514',
+    });
+    expect(res.status).toBe(201);
+
+    const data = await res.json() as { agent: { channels: Record<string, { mode: string }> } };
+    expect(data.agent.channels).toEqual({});
+  });
+
   it('updates agent via PATCH', async () => {
     // Create first
     await api('POST', '', {
@@ -143,6 +207,25 @@ describe('REST API - Agent CRUD', () => {
     expect(res.status).toBe(200);
     const data = await res.json() as { agent: Record<string, unknown> };
     expect(data.agent.displayName).toBe('After');
+  });
+
+  it('ignores legacy slackChannels during update', async () => {
+    await api('POST', '', {
+      id: 'ignore-legacy-update-agent',
+      displayName: 'Before',
+      agentsMd: '# Ignore Legacy Update Agent',
+      channels: { C123: { mode: 'mention' } },
+      slackUsers: [],
+      model: 'anthropic/claude-sonnet-4-20250514',
+    });
+
+    const res = await api('PATCH', '/ignore-legacy-update-agent', {
+      slackChannels: ['C999'],
+    });
+    expect(res.status).toBe(200);
+
+    const data = await res.json() as { agent: { channels: Record<string, { mode: string }> } };
+    expect(data.agent.channels).toEqual({ C123: { mode: 'mention' } });
   });
 
   it('deletes (archives) agent via DELETE', async () => {
@@ -162,3 +245,17 @@ describe('REST API - Agent CRUD', () => {
     expect(existsSync(join(tempDir, 'del-agent'))).toBe(false);
   });
 });
+
+async function supportsSocketBinding(): Promise<boolean> {
+  return new Promise((resolve) => {
+    const server = net.createServer();
+    server.once('error', () => {
+      resolve(false);
+    });
+    server.listen(0, '127.0.0.1', () => {
+      server.close(() => {
+        resolve(true);
+      });
+    });
+  });
+}
