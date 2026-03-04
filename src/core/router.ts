@@ -12,6 +12,7 @@ export class MessageRouter {
 
   route(event: SlackMessageEvent): MessageRouteResult | null {
     const threadTs = event.threadTs ?? event.thread_ts;
+    const enabledAgents = this.registry.getAll().filter((agent) => agent.enabled);
 
     if (threadTs !== undefined) {
       const bySession = this.sessionManager.resolveAgentIdByThread(threadTs);
@@ -28,10 +29,22 @@ export class MessageRouter {
       }
     }
 
+    const byAsDirective = this.findAgentByAsDirective(event.text, enabledAgents);
+    if (byAsDirective.type === 'match') {
+      return { type: 'agent', agent: byAsDirective.agent, threadTs };
+    }
+    if (byAsDirective.type === 'ambiguous') {
+      this.logger.debug('Skipping route for ambiguous /as directive', {
+        text: event.text,
+        candidateIds: byAsDirective.candidateIds,
+      });
+      return null;
+    }
+
     if (event.type === 'app_mention') {
       const byAgentName = this.findAgentByMentionedName(
         event.text,
-        this.registry.getAll().filter((agent) => agent.enabled),
+        enabledAgents,
       );
       if (byAgentName.type === 'match') {
         return { type: 'agent', agent: byAgentName.agent, threadTs };
@@ -192,6 +205,39 @@ export class MessageRouter {
 
     return { type: 'match', agent: bestMatch.agent };
   }
+
+  private findAgentByAsDirective(
+    text: string | undefined,
+    candidates: AgentDefinition[],
+  ): MentionMatch {
+    const asAgentInput = extractAsAgentName(text);
+    if (asAgentInput === undefined) {
+      return { type: 'none' };
+    }
+
+    const normalizedInput = normalizeForMatch(asAgentInput);
+    if (normalizedInput.length === 0) {
+      return { type: 'none' };
+    }
+
+    const matches = candidates.filter((agent) =>
+      getAgentMatchKeys(agent).some((key) => normalizeForMatch(key) === normalizedInput),
+    );
+
+    if (matches.length === 0) {
+      return { type: 'none' };
+    }
+    if (matches.length > 1) {
+      return {
+        type: 'ambiguous',
+        candidateIds: matches
+          .map((agent) => agent.id)
+          .sort((left, right) => left.localeCompare(right)),
+      };
+    }
+
+    return { type: 'match', agent: matches[0] as AgentDefinition };
+  }
 }
 
 export function buildConciergeResponse(registry: AgentRegistry): SlackBlock[] {
@@ -260,6 +306,24 @@ function normalizeForMatch(value: string): string {
 
 function containsWholePhrase(text: string, phrase: string): boolean {
   return ` ${text} `.includes(` ${phrase} `);
+}
+
+function extractAsAgentName(text: string | undefined): string | undefined {
+  if (text === undefined) {
+    return undefined;
+  }
+
+  const match = text.match(/(?:^|\s)\/as\s+([^\s]+)/iu);
+  if (match === null) {
+    return undefined;
+  }
+
+  const candidate = match[1]?.trim() ?? '';
+  if (candidate.length === 0) {
+    return undefined;
+  }
+
+  return candidate.replace(/^[^\p{L}\p{N}_-]+|[^\p{L}\p{N}_-]+$/gu, '');
 }
 
 function getChannelMode(agent: AgentDefinition, channelId: string): 'mention' | 'proactive' {

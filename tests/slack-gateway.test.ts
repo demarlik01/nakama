@@ -4,6 +4,7 @@ import type { AgentDefinition, AppConfig } from '../src/types.js';
 import { SlackGateway } from '../src/slack/app.js';
 import type { MessageRouter } from '../src/core/router.js';
 import type { SessionManager } from '../src/core/session.js';
+import type { AgentRegistry } from '../src/core/registry.js';
 import { createLogger } from '../src/utils/logger.js';
 
 function createAgent(overrides: Partial<AgentDefinition> = {}): AgentDefinition {
@@ -32,6 +33,7 @@ function createGateway(
   overrides?: {
     router?: MessageRouter;
     sessionManager?: SessionManager;
+    registry?: AgentRegistry;
   },
 ): SlackGateway {
   const config: AppConfig = {
@@ -45,7 +47,14 @@ function createGateway(
 
   const router = overrides?.router ?? ({} as MessageRouter);
   const sessionManager = overrides?.sessionManager ?? ({} as SessionManager);
-  const gateway = new SlackGateway(config, router, sessionManager, createLogger('slack-gateway-test'));
+  const registry = overrides?.registry ?? ({} as AgentRegistry);
+  const gateway = new SlackGateway(
+    config,
+    router,
+    sessionManager,
+    registry,
+    createLogger('slack-gateway-test'),
+  );
 
   (gateway as unknown as { app: { client: { chat: { postMessage: typeof postMessageImpl } } } }).app = {
     client: {
@@ -173,5 +182,88 @@ describe('SlackGateway concierge fallback handling', () => {
         },
       },
     ]);
+  });
+});
+
+describe('SlackGateway thread routing enhancements', () => {
+  it('registers thread-to-agent mapping for new channel threads', async () => {
+    const postMessage = vi.fn(async (_payload: Record<string, unknown>) => ({ ok: true }));
+    const handleMessage = vi.fn(async () => 'thread response');
+    const registerThread = vi.fn();
+    const route = vi.fn().mockReturnValue({
+      type: 'agent',
+      agent: createAgent({
+        id: 'engineer',
+        displayName: 'Engineer',
+      }),
+    });
+
+    const gateway = createGateway(postMessage, {
+      router: { route } as unknown as MessageRouter,
+      sessionManager: { handleMessage } as unknown as SessionManager,
+      registry: { registerThread } as unknown as AgentRegistry,
+    });
+
+    const client = {
+      chat: {
+        postMessage,
+      },
+      reactions: {
+        add: vi.fn(async () => ({ ok: true })),
+        remove: vi.fn(async () => ({ ok: true })),
+      },
+      conversations: {
+        history: vi.fn(async () => ({ messages: [] })),
+      },
+    };
+
+    const say = vi.fn(async () => ({}));
+    await (gateway as unknown as {
+      handleSlackEvent: (
+        rawEvent: Record<string, unknown>,
+        say: (payload: unknown) => Promise<unknown>,
+        client: {
+          chat: { postMessage: typeof postMessage };
+          reactions: {
+            add: (payload: unknown) => Promise<unknown>;
+            remove: (payload: unknown) => Promise<unknown>;
+          };
+          conversations: {
+            history: (payload: unknown) => Promise<unknown>;
+          };
+        },
+        type: string,
+      ) => Promise<void>;
+    }).handleSlackEvent(
+      {
+        channel: 'C123',
+        channel_type: 'channel',
+        text: '<@B1> /as engineer 이거 처리해줘',
+        user: 'U123',
+        ts: '1710000000.000001',
+      },
+      say,
+      client,
+      'app_mention',
+    );
+
+    expect(registerThread).toHaveBeenCalledTimes(1);
+    expect(registerThread).toHaveBeenCalledWith('1710000000.000001', 'engineer');
+
+    expect(handleMessage).toHaveBeenCalledTimes(1);
+    expect(handleMessage).toHaveBeenCalledWith(
+      'engineer',
+      expect.any(String),
+      expect.objectContaining({
+        slackChannelId: 'C123',
+        slackThreadTs: '1710000000.000001',
+        slackUserId: 'U123',
+      }),
+    );
+
+    expect(postMessage).toHaveBeenCalled();
+    const payloads = postMessage.mock.calls.map((call) => call[0] as Record<string, unknown>);
+    const threadedPayload = payloads.find((payload) => payload.thread_ts === '1710000000.000001');
+    expect(threadedPayload).toBeDefined();
   });
 });

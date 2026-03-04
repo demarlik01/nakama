@@ -46,7 +46,13 @@ async function bootstrap(): Promise<void> {
     slackConnected: () => slackGateway.isConnected(),
     logger: logger.child('api'),
   });
-  const slackGateway = new SlackGateway(config, router, sessionManager, logger.child('slack'));
+  const slackGateway = new SlackGateway(
+    config,
+    router,
+    sessionManager,
+    registry,
+    logger.child('slack'),
+  );
 
   // Post-to-Slack helper for schedulers (uses Slack Web API directly)
   const postToSlack = async (channelId: string, text: string, agentId: string): Promise<void> => {

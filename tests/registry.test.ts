@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { existsSync, mkdtempSync, readFileSync, writeFileSync, mkdirSync, rmSync } from 'fs';
 import { join } from 'path';
 import { tmpdir } from 'os';
-import { AgentRegistry } from '../src/core/registry.js';
+import { AgentRegistry, NotFoundError } from '../src/core/registry.js';
 import { createLogger } from '../src/utils/logger.js';
 
 describe('AgentRegistry', () => {
@@ -200,6 +200,68 @@ describe('AgentRegistry', () => {
 
     expect(registry.findBySlackChannel('C123').map((agent) => agent.id)).toEqual(['mention-agent']);
     expect(registry.findBySlackChannel('C999').map((agent) => agent.id)).toEqual(['proactive-agent']);
+  });
+
+  it('assignChannel adds channel to agent', async () => {
+    createAgentDir('assign-agent', '# Assign', {
+      displayName: 'Assign Agent',
+      channels: {},
+      slackUsers: [],
+      enabled: true,
+    });
+
+    registry = new AgentRegistry(tempDir, logger);
+    await registry.start();
+
+    const updated = await registry.assignChannel('assign-agent', 'C_ASSIGNED', 'mention');
+
+    expect(updated.channels).toEqual({
+      C_ASSIGNED: { mode: 'mention' },
+    });
+
+    const metadata = JSON.parse(readFileSync(join(tempDir, 'assign-agent', 'agent.json'), 'utf8')) as {
+      channels?: Record<string, { mode: string }>;
+    };
+    expect(metadata.channels).toEqual({
+      C_ASSIGNED: { mode: 'mention' },
+    });
+  });
+
+  it('unassignChannel removes channel from agent', async () => {
+    createAgentDir('unassign-agent', '# Unassign', {
+      displayName: 'Unassign Agent',
+      channels: {
+        C_REMOVE: { mode: 'mention' },
+        C_KEEP: { mode: 'proactive' },
+      },
+      slackUsers: [],
+      enabled: true,
+    });
+
+    registry = new AgentRegistry(tempDir, logger);
+    await registry.start();
+
+    const updated = await registry.unassignChannel('unassign-agent', 'C_REMOVE');
+
+    expect(updated.channels).toEqual({
+      C_KEEP: { mode: 'proactive' },
+    });
+
+    const metadata = JSON.parse(readFileSync(join(tempDir, 'unassign-agent', 'agent.json'), 'utf8')) as {
+      channels?: Record<string, { mode: string }>;
+    };
+    expect(metadata.channels).toEqual({
+      C_KEEP: { mode: 'proactive' },
+    });
+  });
+
+  it('assigning to nonexistent agent returns error', async () => {
+    registry = new AgentRegistry(tempDir, logger);
+    await registry.start();
+
+    await expect(registry.assignChannel('missing-agent', 'C123', 'mention')).rejects.toBeInstanceOf(
+      NotFoundError,
+    );
   });
 
 });

@@ -118,6 +118,50 @@ export class AgentRegistry extends EventEmitter<AgentRegistryEvents> {
     this.threadToAgent.delete(threadTs);
   }
 
+  async assignChannel(
+    agentId: string,
+    channelId: string,
+    mode: ChannelConfig['mode'],
+  ): Promise<AgentDefinition> {
+    const existing = this.agents.get(agentId);
+    if (existing === undefined) {
+      throw new NotFoundError(`Agent not found: ${agentId}`);
+    }
+
+    const normalizedChannelId = channelId.trim();
+    if (normalizedChannelId.length === 0) {
+      throw new Error('channelId must be a non-empty string');
+    }
+
+    const nextChannels: Record<string, ChannelConfig> = {
+      ...existing.channels,
+      [normalizedChannelId]: { mode },
+    };
+
+    return this.update(agentId, { channels: nextChannels });
+  }
+
+  async unassignChannel(agentId: string, channelId: string): Promise<AgentDefinition> {
+    const existing = this.agents.get(agentId);
+    if (existing === undefined) {
+      throw new NotFoundError(`Agent not found: ${agentId}`);
+    }
+
+    const normalizedChannelId = channelId.trim();
+    if (normalizedChannelId.length === 0) {
+      throw new Error('channelId must be a non-empty string');
+    }
+
+    if (!(normalizedChannelId in existing.channels)) {
+      return existing;
+    }
+
+    const nextChannels = { ...existing.channels };
+    delete nextChannels[normalizedChannelId];
+
+    return this.update(agentId, { channels: nextChannels });
+  }
+
   onAgentChange(handler: (agent: AgentDefinition) => void): void {
     this.on('agent:added', handler);
     this.on('agent:updated', handler);

@@ -287,4 +287,54 @@ describe('MessageRouter mention disambiguation', () => {
     expect(route?.type).toBe('agent');
     expect(route && route.type === 'agent' ? route.agent.id : undefined).toBe('mapped-agent');
   });
+
+  it('/as engineer in message routes to engineer agent', () => {
+    const defaultAgent = createAgent({
+      id: 'analyst',
+      displayName: 'Analyst',
+      channels: { C_TEAM: { mode: 'mention' } },
+    });
+    const engineer = createAgent({
+      id: 'engineer',
+      displayName: 'Engineer',
+      channels: {},
+    });
+    const router = createRouter([defaultAgent, engineer]);
+
+    const event: SlackMessageEvent = {
+      type: 'app_mention',
+      channel: 'C_TEAM',
+      channelType: 'channel',
+      text: '<@B1> /as engineer 이 이슈를 봐줘',
+    };
+    const route = router.route(event);
+
+    expect(route?.type).toBe('agent');
+    expect(route && route.type === 'agent' ? route.agent.id : undefined).toBe('engineer');
+  });
+
+  it('falls back to default channel agent when no /as is specified', () => {
+    const defaultAgent = createAgent({
+      id: 'analyst',
+      displayName: 'Analyst',
+      channels: { C_TEAM: { mode: 'mention' } },
+    });
+    const engineer = createAgent({
+      id: 'engineer',
+      displayName: 'Engineer',
+      channels: {},
+    });
+    const router = createRouter([defaultAgent, engineer]);
+
+    const event: SlackMessageEvent = {
+      type: 'app_mention',
+      channel: 'C_TEAM',
+      channelType: 'channel',
+      text: '<@B1> 이 이슈를 봐줘',
+    };
+    const route = router.route(event);
+
+    expect(route?.type).toBe('agent');
+    expect(route && route.type === 'agent' ? route.agent.id : undefined).toBe('analyst');
+  });
 });

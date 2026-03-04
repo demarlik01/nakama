@@ -9,7 +9,9 @@ import { join, basename } from 'node:path';
 import type { AgentDefinition, AppConfig, SlackBlock, SlackMessageEvent } from '../types.js';
 import { createLogger, type Logger } from '../utils/logger.js';
 import type { MessageRouter } from '../core/router.js';
+import type { AgentRegistry } from '../core/registry.js';
 import { markdownToBlocks, markdownToPlainText, splitBlocksForSlack } from './block-kit.js';
+import { registerCommands } from './commands.js';
 
 import type { SessionManager } from '../core/session.js';
 
@@ -29,6 +31,7 @@ export class SlackGateway {
     private readonly config: AppConfig,
     private readonly router: MessageRouter,
     private readonly sessionManager: SessionManager,
+    private readonly registry: AgentRegistry,
     private readonly logger: Logger = createLogger('SlackGateway'),
   ) {}
 
@@ -150,6 +153,8 @@ export class SlackGateway {
   }
 
   private registerEventHandlers(app: App): void {
+    registerCommands(app, this.registry);
+
     app.event('app_mention', async ({ event, say, client }) => {
       await this.handleSlackEvent(
         event as unknown as Record<string, unknown>,
@@ -194,12 +199,23 @@ export class SlackGateway {
       return;
     }
 
+    const isChannelMessage = (type === 'message' || type === 'app_mention') && normalized.channelType !== 'im';
+    const isNewChannelThreadStart =
+      isChannelMessage &&
+      normalized.channel !== undefined &&
+      normalized.threadTs === undefined &&
+      normalized.thread_ts === undefined;
+
     const incomingThreadTs = route.threadTs ?? normalized.threadTs ?? normalized.thread_ts;
     const threadTs = incomingThreadTs ?? inferThreadTs(rawEvent);
 
     if (route.type === 'concierge') {
       await this.replyBlocksToSlack(client, say, normalized.channel, route.response, threadTs);
       return;
+    }
+
+    if (isNewChannelThreadStart && threadTs !== undefined) {
+      this.registry.registerThread(threadTs, route.agent.id);
     }
 
     const channel = normalized.channel ?? '';
@@ -226,6 +242,13 @@ export class SlackGateway {
       if (filePaths.length > 0) {
         const fileList = filePaths.map((p) => `- ${p}`).join('\n');
         messageText += `\n\n[Attached files downloaded to agent workspace]\n${fileList}`;
+      }
+
+      if (isNewChannelThreadStart && channel.length > 0) {
+        const recentContext = await this.buildRecentChannelContext(client, channel, messageTs);
+        if (recentContext !== undefined) {
+          messageText = `${recentContext}\n\n${messageText}`;
+        }
       }
 
       const response = await this.sessionManager.handleMessage(
@@ -275,6 +298,61 @@ export class SlackGateway {
           error: String(sayErr),
         });
       });
+    }
+  }
+
+  private async buildRecentChannelContext(
+    client: WebClient,
+    channelId: string,
+    messageTs: string | undefined,
+  ): Promise<string | undefined> {
+    try {
+      const history = await client.conversations.history({
+        channel: channelId,
+        ...(messageTs !== undefined ? { latest: messageTs, inclusive: false } : {}),
+        limit: RECENT_CHANNEL_CONTEXT_FETCH_LIMIT,
+      });
+
+      const recentMessages = (history.messages ?? [])
+        .map((message) => {
+          const record = message as Record<string, unknown>;
+          const text = asOptionalString(record.text);
+          if (text === undefined || text.trim().length === 0) {
+            return undefined;
+          }
+
+          const ts = asOptionalString(record.ts);
+          const threadTs = asOptionalString(record.thread_ts);
+          if (threadTs !== undefined && ts !== threadTs) {
+            return undefined;
+          }
+
+          const user = asOptionalString(record.user);
+          const username = asOptionalString(record.username);
+          return {
+            speaker: user !== undefined ? `<@${user}>` : username ?? 'unknown',
+            text: text.replace(/\s+/g, ' ').trim().slice(0, RECENT_CHANNEL_CONTEXT_TEXT_LIMIT),
+          };
+        })
+        .filter(
+          (item): item is { speaker: string; text: string } =>
+            item !== undefined && item.text.length > 0,
+        )
+        .slice(0, RECENT_CHANNEL_CONTEXT_LINE_LIMIT)
+        .reverse();
+
+      if (recentMessages.length === 0) {
+        return undefined;
+      }
+
+      const lines = recentMessages.map((entry) => `- ${entry.speaker}: ${entry.text}`).join('\n');
+      return `## Recent Channel Messages\n${lines}`;
+    } catch (error) {
+      this.logger.warn('Failed to fetch recent channel context', {
+        channelId,
+        error: error instanceof Error ? error.message : String(error),
+      });
+      return undefined;
     }
   }
 
@@ -592,6 +670,9 @@ ${originalMessage.text}`,
 }
 
 const SLACK_MAX_MESSAGE_LENGTH = 4000;
+const RECENT_CHANNEL_CONTEXT_FETCH_LIMIT = 10;
+const RECENT_CHANNEL_CONTEXT_LINE_LIMIT = 8;
+const RECENT_CHANNEL_CONTEXT_TEXT_LIMIT = 280;
 
 async function addReaction(
   client: WebClient,
