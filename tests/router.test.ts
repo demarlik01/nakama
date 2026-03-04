@@ -337,4 +337,28 @@ describe('MessageRouter mention disambiguation', () => {
     expect(route?.type).toBe('agent');
     expect(route && route.type === 'agent' ? route.agent.id : undefined).toBe('analyst');
   });
+
+  it('does not route plain channel messages that include /as without bot mention', () => {
+    const defaultAgent = createAgent({
+      id: 'analyst',
+      displayName: 'Analyst',
+      channels: { C_TEAM: { mode: 'mention' } },
+    });
+    const engineer = createAgent({
+      id: 'engineer',
+      displayName: 'Engineer',
+      channels: {},
+    });
+    const router = createRouter([defaultAgent, engineer]);
+
+    const event: SlackMessageEvent = {
+      type: 'message',
+      channel: 'C_TEAM',
+      channelType: 'channel',
+      text: '/as engineer 이 이슈를 봐줘',
+      user: 'U123',
+    };
+
+    expect(router.route(event)).toBeNull();
+  });
 });

@@ -29,19 +29,19 @@ export class MessageRouter {
       }
     }
 
-    const byAsDirective = this.findAgentByAsDirective(event.text, enabledAgents);
-    if (byAsDirective.type === 'match') {
-      return { type: 'agent', agent: byAsDirective.agent, threadTs };
-    }
-    if (byAsDirective.type === 'ambiguous') {
-      this.logger.debug('Skipping route for ambiguous /as directive', {
-        text: event.text,
-        candidateIds: byAsDirective.candidateIds,
-      });
-      return null;
-    }
-
     if (event.type === 'app_mention') {
+      const byAsDirective = this.findAgentByAsDirective(event.text, enabledAgents);
+      if (byAsDirective.type === 'match') {
+        return { type: 'agent', agent: byAsDirective.agent, threadTs };
+      }
+      if (byAsDirective.type === 'ambiguous') {
+        this.logger.debug('Skipping route for ambiguous /as directive', {
+          text: event.text,
+          candidateIds: byAsDirective.candidateIds,
+        });
+        return null;
+      }
+
       const byAgentName = this.findAgentByMentionedName(
         event.text,
         enabledAgents,
