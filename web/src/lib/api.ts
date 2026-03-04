@@ -1,3 +1,9 @@
+export type ChannelMode = "mention" | "proactive";
+
+export interface ChannelConfig {
+  mode: ChannelMode;
+}
+
 export interface Agent {
   id: string;
   displayName: string;
@@ -8,7 +14,7 @@ export interface Agent {
   // Deprecated alias for old payloads.
   errorNotificationChannel?: string;
   model?: string;
-  slackChannels: string[];
+  channels: Record<string, ChannelConfig>;
   slackUsers: string[];
   heartbeat?: { enabled: boolean; intervalMin: number; prompt?: string };
   cron?: { schedule: string; prompt: string }[];
@@ -18,7 +24,10 @@ export interface Agent {
   reactionTriggers?: string[];
 }
 
-type ApiAgent = Omit<Agent, "status"> & {
+type ApiAgent = Omit<Agent, "status" | "channels"> & {
+  channels?: Record<string, { mode?: unknown }>;
+  // Deprecated alias for old payloads.
+  slackChannels?: string[];
   status?: Agent["status"];
 };
 
@@ -32,7 +41,7 @@ export interface CreateAgentInput {
   // Deprecated alias for old payloads.
   errorNotificationChannel?: string;
   model: string;
-  slackChannels: string[];
+  channels: Record<string, ChannelConfig>;
   slackUsers?: string[];
   agentsMd?: string;
 }
@@ -130,6 +139,9 @@ export const updateAgent = (id: string, data: Partial<Agent>) => {
   if ("limits" in payload) {
     payload.limits = normalizeLimitsPatchPayload(payload.limits);
   }
+  if ("channels" in payload) {
+    payload.channels = normalizeChannels(payload.channels);
+  }
   delete payload.errorNotificationChannel;
   return api<AgentEnvelope>(`/api/agents/${encodeURIComponent(id)}`, { method: "PUT", body: JSON.stringify(payload) })
     .then((r) => normalizeAgent(r.agent));
@@ -185,6 +197,7 @@ function normalizeAgent(agent: ApiAgent): Agent {
   const normalizedStatus = normalizeAgentStatus(agent.status);
   return {
     ...agent,
+    channels: normalizeChannels(agent.channels, agent.slackChannels),
     notifyChannel: agent.notifyChannel ?? agent.errorNotificationChannel,
     status: normalizedStatus ?? (agent.enabled ? "idle" : "disabled"),
   };
@@ -197,9 +210,45 @@ function normalizeCreateAgentInput(input: CreateAgentInput): CreateAgentInput {
 
   return {
     ...input,
+    channels: normalizeChannels(input.channels),
     notifyChannel: mergedNotifyChannel,
     errorNotificationChannel: undefined,
   };
+}
+
+function normalizeChannels(
+  channels: unknown,
+  legacySlackChannels?: unknown,
+): Record<string, ChannelConfig> {
+  const normalized: Record<string, ChannelConfig> = {};
+
+  if (isRecord(channels)) {
+    for (const [channelId, rawConfig] of Object.entries(channels)) {
+      if (rawConfig === undefined || rawConfig === null || !isRecord(rawConfig)) {
+        normalized[channelId] = { mode: "mention" };
+        continue;
+      }
+
+      const mode = rawConfig.mode === "proactive" ? "proactive" : "mention";
+      normalized[channelId] = { mode };
+    }
+    return normalized;
+  }
+
+  if (Array.isArray(legacySlackChannels)) {
+    for (const channelId of legacySlackChannels) {
+      if (typeof channelId !== "string") {
+        continue;
+      }
+      const trimmed = channelId.trim();
+      if (trimmed.length === 0) {
+        continue;
+      }
+      normalized[trimmed] = { mode: "mention" };
+    }
+  }
+
+  return normalized;
 }
 
 function normalizeOptionalPatchString(value: unknown): unknown {
@@ -218,6 +267,10 @@ function normalizeOptionalCreateString(value: string | undefined): string | unde
 
   const trimmed = value.trim();
   return trimmed === "" ? undefined : trimmed;
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
 function toFiniteNumber(value: unknown): number {

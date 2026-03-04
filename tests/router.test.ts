@@ -11,7 +11,7 @@ function createAgent(overrides: Partial<AgentDefinition> & { id: string; display
     id: overrides.id,
     displayName: overrides.displayName,
     workspacePath: overrides.workspacePath ?? `/tmp/${overrides.id}`,
-    slackChannels: overrides.slackChannels ?? [],
+    channels: overrides.channels ?? {},
     slackUsers: overrides.slackUsers ?? [],
     enabled: overrides.enabled ?? true,
     slackBotUserId: overrides.slackBotUserId,
@@ -39,7 +39,7 @@ function createRouter(agents: AgentDefinition[]): MessageRouter {
     findBySlackUser: (userId: string) =>
       sorted.find((agent) => agent.enabled && agent.slackUsers.includes(userId)),
     findBySlackChannel: (channelId: string) =>
-      sorted.filter((agent) => agent.enabled && agent.slackChannels.includes(channelId)),
+      sorted.filter((agent) => agent.enabled && Object.keys(agent.channels).includes(channelId)),
   } as unknown as AgentRegistry;
 
   const sessionManager = {
@@ -77,12 +77,12 @@ describe('MessageRouter mention disambiguation', () => {
     const alpha = createAgent({
       id: 'alpha',
       displayName: 'Alpha',
-      slackChannels: ['C_SHARED'],
+      channels: { C_SHARED: { mode: 'proactive' } },
     });
     const beta = createAgent({
       id: 'beta',
       displayName: 'Beta',
-      slackChannels: ['C_SHARED'],
+      channels: { C_SHARED: { mode: 'proactive' } },
     });
     const router = createRouter([beta, alpha]);
 
@@ -100,12 +100,12 @@ describe('MessageRouter mention disambiguation', () => {
     const alpha = createAgent({
       id: 'alpha',
       displayName: 'Assistant',
-      slackChannels: ['C_SHARED'],
+      channels: { C_SHARED: { mode: 'proactive' } },
     });
     const beta = createAgent({
       id: 'beta',
       displayName: 'Assistant',
-      slackChannels: ['C_SHARED'],
+      channels: { C_SHARED: { mode: 'proactive' } },
     });
     const router = createRouter([alpha, beta]);
 

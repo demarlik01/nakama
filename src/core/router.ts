@@ -62,8 +62,13 @@ export class MessageRouter {
     }
 
     if (event.channel !== undefined) {
-      const channelAgents = this.registry.findBySlackChannel(event.channel);
-      const selected = this.selectChannelAgent(channelAgents, event.user, event.text);
+      const channelId = event.channel;
+      const channelAgents = this.registry.findBySlackChannel(channelId);
+      const routableChannelAgents =
+        event.type === 'message'
+          ? channelAgents.filter((agent) => getChannelMode(agent, channelId) === 'proactive')
+          : channelAgents;
+      const selected = this.selectChannelAgent(routableChannelAgents, event.user, event.text);
       if (selected !== undefined) {
         return { agent: selected, threadTs };
       }
@@ -199,4 +204,8 @@ function normalizeForMatch(value: string): string {
 
 function containsWholePhrase(text: string, phrase: string): boolean {
   return ` ${text} `.includes(` ${phrase} `);
+}
+
+function getChannelMode(agent: AgentDefinition, channelId: string): 'mention' | 'proactive' {
+  return agent.channels[channelId]?.mode ?? 'mention';
 }

@@ -29,8 +29,8 @@ describe('AgentRegistry', () => {
   }
 
   it('scans existing agent directories on start', async () => {
-    createAgentDir('agent-a', '# A', { displayName: 'Agent A', slackChannels: [], slackUsers: [], enabled: true });
-    createAgentDir('agent-b', '# B', { displayName: 'Agent B', slackChannels: [], slackUsers: [], enabled: true });
+    createAgentDir('agent-a', '# A', { displayName: 'Agent A', channels: {}, slackUsers: [], enabled: true });
+    createAgentDir('agent-b', '# B', { displayName: 'Agent B', channels: {}, slackUsers: [], enabled: true });
 
     registry = new AgentRegistry(tempDir, logger);
     await registry.start();
@@ -51,7 +51,12 @@ describe('AgentRegistry', () => {
   });
 
   it('getById returns the correct agent', async () => {
-    createAgentDir('my-agent', '# My Agent', { displayName: 'My Agent', slackChannels: ['C123'], slackUsers: ['U456'], enabled: true });
+    createAgentDir('my-agent', '# My Agent', {
+      displayName: 'My Agent',
+      channels: { C123: { mode: 'mention' } },
+      slackUsers: ['U456'],
+      enabled: true,
+    });
 
     registry = new AgentRegistry(tempDir, logger);
     await registry.start();
@@ -59,7 +64,7 @@ describe('AgentRegistry', () => {
     const agent = registry.getById('my-agent');
     expect(agent).toBeDefined();
     expect(agent!.displayName).toBe('My Agent');
-    expect(agent!.slackChannels).toEqual(['C123']);
+    expect(agent!.channels).toEqual({ C123: { mode: 'mention' } });
     expect(agent!.slackUsers).toEqual(['U456']);
   });
 
@@ -70,7 +75,7 @@ describe('AgentRegistry', () => {
   });
 
   it('tracks thread-to-agent mapping', async () => {
-    createAgentDir('thread-agent', '# Thread', { displayName: 'Thread Agent', slackChannels: [], slackUsers: [], enabled: true });
+    createAgentDir('thread-agent', '# Thread', { displayName: 'Thread Agent', channels: {}, slackUsers: [], enabled: true });
 
     registry = new AgentRegistry(tempDir, logger);
     await registry.start();
@@ -87,7 +92,7 @@ describe('AgentRegistry', () => {
     await registry.create({
       id: 'bootstrap-agent',
       displayName: 'Bootstrap Agent',
-      slackChannels: ['C123'],
+      channels: { C123: { mode: 'mention' } },
       slackUsers: [],
       model: 'anthropic/claude-sonnet-4-20250514',
     });
@@ -141,7 +146,7 @@ describe('AgentRegistry', () => {
       id: 'custom-agent',
       displayName: 'Custom Agent',
       agentsMd: customAgentsMd,
-      slackChannels: ['C123'],
+      channels: { C123: { mode: 'mention' } },
       slackUsers: [],
       model: 'anthropic/claude-sonnet-4-20250514',
     });
@@ -149,6 +154,52 @@ describe('AgentRegistry', () => {
     const agentsMd = readFileSync(join(tempDir, 'custom-agent', 'AGENTS.md'), 'utf8');
     expect(agentsMd).toContain('CUSTOM-MARKER');
     expect(agentsMd).toContain('## Notes');
+  });
+
+  it('stores channels config in agent.json during create', async () => {
+    registry = new AgentRegistry(tempDir, logger);
+    await registry.start();
+
+    await registry.create({
+      id: 'channel-agent',
+      displayName: 'Channel Agent',
+      channels: {
+        C123: { mode: 'mention' },
+        C999: { mode: 'proactive' },
+      },
+      slackUsers: [],
+      model: 'anthropic/claude-sonnet-4-20250514',
+    });
+
+    const metadata = JSON.parse(readFileSync(join(tempDir, 'channel-agent', 'agent.json'), 'utf8')) as {
+      channels?: Record<string, { mode?: string }>;
+    };
+
+    expect(metadata.channels).toEqual({
+      C123: { mode: 'mention' },
+      C999: { mode: 'proactive' },
+    });
+  });
+
+  it('findBySlackChannel matches agents by channels record', async () => {
+    createAgentDir('mention-agent', '# Mention', {
+      displayName: 'Mention Agent',
+      channels: { C123: { mode: 'mention' } },
+      slackUsers: [],
+      enabled: true,
+    });
+    createAgentDir('proactive-agent', '# Proactive', {
+      displayName: 'Proactive Agent',
+      channels: { C999: { mode: 'proactive' } },
+      slackUsers: [],
+      enabled: true,
+    });
+
+    registry = new AgentRegistry(tempDir, logger);
+    await registry.start();
+
+    expect(registry.findBySlackChannel('C123').map((agent) => agent.id)).toEqual(['mention-agent']);
+    expect(registry.findBySlackChannel('C999').map((agent) => agent.id)).toEqual(['proactive-agent']);
   });
 
 });

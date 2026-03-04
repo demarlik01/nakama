@@ -27,7 +27,7 @@ export function AgentCreate() {
   const [form, setForm] = useState({
     id: "",
     displayName: "",
-    slackChannels: "",
+    channels: "",
     model: MODELS[0],
     description: "",
     slackDisplayName: "",
@@ -40,12 +40,12 @@ export function AgentCreate() {
 
   const handleCreate = async () => {
     const trimmedId = form.id.trim();
-    const slackChannels = splitCommaSeparated(form.slackChannels);
+    const channelIds = splitCommaSeparated(form.channels);
     const slackUsers = splitCommaSeparated(form.slackUsers);
     const trimmedAgentsMd = form.agentsMd.trim();
 
-    if (!trimmedId || !form.displayName.trim() || !form.model.trim() || slackChannels.length === 0) {
-      toast.error("id, displayName, slackChannels, model은 필수입니다.");
+    if (!trimmedId || !form.displayName.trim() || !form.model.trim() || channelIds.length === 0) {
+      toast.error("id, displayName, channels, model은 필수입니다.");
       return;
     }
     if (!isValidAgentId(trimmedId)) {
@@ -59,7 +59,7 @@ export function AgentCreate() {
         id: trimmedId,
         displayName: form.displayName.trim(),
         model: form.model.trim(),
-        slackChannels,
+        channels: channelMapFromIds(channelIds),
         description: form.description.trim() || undefined,
         slackDisplayName: form.slackDisplayName.trim() || undefined,
         slackIcon: form.slackIcon.trim() || undefined,
@@ -100,8 +100,8 @@ export function AgentCreate() {
         <div className="grid gap-1.5">
           <Label>Slack Channels (comma-separated) *</Label>
           <Input
-            value={form.slackChannels}
-            onChange={(e) => setForm({ ...form, slackChannels: e.target.value })}
+            value={form.channels}
+            onChange={(e) => setForm({ ...form, channels: e.target.value })}
             placeholder="C01ABCDEF, C02HIJKLM"
           />
         </div>
@@ -189,6 +189,14 @@ function splitCommaSeparated(value: string): string[] {
     .split(",")
     .map((item) => item.trim())
     .filter((item) => item.length > 0);
+}
+
+function channelMapFromIds(channelIds: string[]): Record<string, { mode: "mention" }> {
+  const channels: Record<string, { mode: "mention" }> = {};
+  for (const channelId of channelIds) {
+    channels[channelId] = { mode: "mention" };
+  }
+  return channels;
 }
 
 function isValidAgentId(value: string): boolean {

@@ -16,6 +16,7 @@ import {
   type AgentDefinition,
   type AgentMetadata,
   type AgentRegistryEvents,
+  type ChannelConfig,
   type CronJobConfig,
   type CreateAgentParams,
   type HeartbeatConfig,
@@ -89,7 +90,7 @@ export class AgentRegistry extends EventEmitter<AgentRegistryEvents> {
   }
 
   findBySlackChannel(channelId: string): AgentDefinition[] {
-    return this.getAll().filter((agent) => agent.enabled && agent.slackChannels.includes(channelId));
+    return this.getAll().filter((agent) => agent.enabled && getChannelIds(agent).includes(channelId));
   }
 
   findByBotUserId(botUserId: string): AgentDefinition | undefined {
@@ -127,6 +128,7 @@ export class AgentRegistry extends EventEmitter<AgentRegistryEvents> {
     if (this.agents.has(id)) {
       throw new ConflictError(`Agent already exists: ${id}`);
     }
+    const channels = resolveChannels(params.channels, params.slackChannels);
 
     const workspacePath = path.join(this.workspacesRoot, id);
     await mkdir(workspacePath, { recursive: false });
@@ -139,7 +141,7 @@ export class AgentRegistry extends EventEmitter<AgentRegistryEvents> {
         slackIcon: params.slackIcon,
         description: params.description,
         notifyChannel: params.notifyChannel ?? params.errorNotificationChannel,
-        slackChannels: params.slackChannels,
+        channels,
         slackUsers: params.slackUsers,
         model: params.model,
         enabled: params.enabled ?? true,
@@ -179,7 +181,7 @@ export class AgentRegistry extends EventEmitter<AgentRegistryEvents> {
       slackIcon: existing.slackIcon,
       description: existing.description,
       notifyChannel: existing.notifyChannel ?? existing.errorNotificationChannel,
-      slackChannels: existing.slackChannels,
+      channels: existing.channels,
       slackUsers: existing.slackUsers,
       slackBotUserId: existing.slackBotUserId,
       model: existing.model,
@@ -214,7 +216,11 @@ export class AgentRegistry extends EventEmitter<AgentRegistryEvents> {
         : hasNotifyChannel
           ? undefined
           : currentMetadata.errorNotificationChannel,
-      slackChannels: params.slackChannels ?? currentMetadata.slackChannels,
+      channels: resolveChannels(
+        params.channels,
+        params.slackChannels,
+        currentMetadata.channels,
+      ),
       slackUsers: params.slackUsers ?? currentMetadata.slackUsers,
       slackBotUserId: params.slackBotUserId ?? currentMetadata.slackBotUserId,
       model: params.model ?? currentMetadata.model,
@@ -415,7 +421,7 @@ export class AgentRegistry extends EventEmitter<AgentRegistryEvents> {
     const metadataPath = path.join(workspacePath, AGENT_JSON_FILE);
     const metadata = (await readJsonIfExists(metadataPath)) ?? {
       displayName: id,
-      slackChannels: [],
+      channels: {},
       slackUsers: [],
       enabled: true,
     };
@@ -429,7 +435,7 @@ export class AgentRegistry extends EventEmitter<AgentRegistryEvents> {
       notifyChannel: metadata.notifyChannel ?? metadata.errorNotificationChannel,
       errorNotificationChannel: metadata.errorNotificationChannel,
       workspacePath,
-      slackChannels: metadata.slackChannels,
+      channels: metadata.channels,
       slackUsers: metadata.slackUsers,
       slackBotUserId: metadata.slackBotUserId,
       model: metadata.model,
@@ -453,6 +459,10 @@ export class AgentRegistry extends EventEmitter<AgentRegistryEvents> {
 
 function agentEquals(left: AgentDefinition, right: AgentDefinition): boolean {
   return JSON.stringify(left) === JSON.stringify(right);
+}
+
+export function getChannelIds(agent: Pick<AgentDefinition, 'channels'>): string[] {
+  return Object.keys(agent.channels);
 }
 
 function normalizeAgentId(input: string): string {
@@ -610,6 +620,10 @@ async function readJsonIfExists(filePath: string): Promise<AgentMetadata | null>
       throw new Error('agent.json must be an object');
     }
 
+    const channels = parsed.channels === undefined
+      ? channelMapFromIds(asOptionalStringArray(parsed.slackChannels, 'slackChannels') ?? [])
+      : asChannelMap(parsed.channels, 'channels');
+
     const metadata: AgentMetadata = {
       displayName: asString(parsed.displayName, 'displayName'),
       slackDisplayName: asOptionalString(parsed.slackDisplayName, 'slackDisplayName'),
@@ -623,7 +637,7 @@ async function readJsonIfExists(filePath: string): Promise<AgentMetadata | null>
         parsed.errorNotificationChannel,
         'errorNotificationChannel',
       ),
-      slackChannels: asStringArray(parsed.slackChannels, 'slackChannels'),
+      channels,
       slackUsers: asStringArray(parsed.slackUsers, 'slackUsers'),
       enabled: asBoolean(parsed.enabled, 'enabled'),
       model: asOptionalString(parsed.model, 'model'),
@@ -742,6 +756,71 @@ function asStringArray(value: unknown, label: string): string[] {
   }
 
   return out;
+}
+
+function asOptionalStringArray(value: unknown, label: string): string[] | undefined {
+  if (value === undefined || value === null) {
+    return undefined;
+  }
+  return asStringArray(value, label);
+}
+
+function asChannelMap(value: unknown, label: string): Record<string, ChannelConfig> {
+  if (!isObject(value)) {
+    throw new Error(`${label} must be an object`);
+  }
+
+  const channels: Record<string, ChannelConfig> = {};
+  for (const [channelId, channelConfig] of Object.entries(value)) {
+    if (channelConfig === undefined || channelConfig === null) {
+      channels[channelId] = { mode: 'mention' };
+      continue;
+    }
+    if (!isObject(channelConfig)) {
+      throw new Error(`${label}.${channelId} must be an object`);
+    }
+    channels[channelId] = {
+      mode: asChannelMode(channelConfig.mode, `${label}.${channelId}.mode`),
+    };
+  }
+
+  return channels;
+}
+
+function asChannelMode(value: unknown, label: string): ChannelConfig['mode'] {
+  if (value === undefined || value === null) {
+    return 'mention';
+  }
+  if (value !== 'mention' && value !== 'proactive') {
+    throw new Error(`${label} must be "mention" or "proactive"`);
+  }
+  return value;
+}
+
+function channelMapFromIds(channelIds: string[]): Record<string, ChannelConfig> {
+  const channels: Record<string, ChannelConfig> = {};
+  for (const rawChannelId of channelIds) {
+    const channelId = rawChannelId.trim();
+    if (channelId.length === 0) {
+      continue;
+    }
+    channels[channelId] = { mode: 'mention' };
+  }
+  return channels;
+}
+
+function resolveChannels(
+  channels?: Record<string, ChannelConfig>,
+  legacySlackChannels?: string[],
+  fallbackChannels: Record<string, ChannelConfig> = {},
+): Record<string, ChannelConfig> {
+  if (channels !== undefined) {
+    return asChannelMap(channels, 'channels');
+  }
+  if (legacySlackChannels !== undefined) {
+    return channelMapFromIds(legacySlackChannels);
+  }
+  return asChannelMap(fallbackChannels, 'channels');
 }
 
 function asBoolean(value: unknown, label: string): boolean {

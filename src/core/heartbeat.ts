@@ -4,6 +4,7 @@ import path from 'node:path';
 import type { AgentDefinition } from '../types.js';
 import type { Logger } from '../utils/logger.js';
 import { createLogger } from '../utils/logger.js';
+import { getChannelIds } from './registry.js';
 import type { SessionManager } from './session.js';
 
 const HEARTBEAT_MD = 'HEARTBEAT.md';
@@ -103,7 +104,7 @@ export class HeartbeatScheduler {
     this.logger.info('Sending heartbeat', { agentId: agent.id });
 
     // Determine a channel to post responses to (first configured channel)
-    const channel = agent.slackChannels[0];
+    const channel = getChannelIds(agent)[0];
     if (channel === undefined) {
       this.logger.warn('No Slack channel configured for heartbeat response', {
         agentId: agent.id,

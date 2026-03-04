@@ -25,6 +25,12 @@ export interface LimitsConfig {
   maxMessageLength?: number;
 }
 
+export type ChannelMode = 'mention' | 'proactive';
+
+export interface ChannelConfig {
+  mode: ChannelMode;
+}
+
 export interface AgentDefinition {
   id: string;
   displayName: string;
@@ -35,7 +41,7 @@ export interface AgentDefinition {
   // Deprecated alias; kept for backward compatibility.
   errorNotificationChannel?: string;
   workspacePath: string;
-  slackChannels: string[];
+  channels: Record<string, ChannelConfig>;
   slackUsers: string[];
   slackBotUserId?: string;
   model?: string;
@@ -75,7 +81,7 @@ export interface AgentMetadata {
   notifyChannel?: string;
   // Deprecated alias; kept for backward compatibility.
   errorNotificationChannel?: string;
-  slackChannels: string[];
+  channels: Record<string, ChannelConfig>;
   slackUsers: string[];
   slackBotUserId?: string;
   model?: string;
@@ -97,7 +103,9 @@ export interface CreateAgentParams {
   // Deprecated alias; kept for backward compatibility.
   errorNotificationChannel?: string;
   agentsMd?: string;
-  slackChannels: string[];
+  channels: Record<string, ChannelConfig>;
+  // Deprecated alias; kept for backward compatibility.
+  slackChannels?: string[];
   slackUsers: string[];
   model?: string;
   enabled?: boolean;
@@ -116,6 +124,8 @@ export interface UpdateAgentParams {
   notifyChannel?: string;
   // Deprecated alias; kept for backward compatibility.
   errorNotificationChannel?: string;
+  channels?: Record<string, ChannelConfig>;
+  // Deprecated alias; kept for backward compatibility.
   slackChannels?: string[];
   slackUsers?: string[];
   slackBotUserId?: string;

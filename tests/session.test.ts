@@ -60,7 +60,7 @@ describe('SessionManager', () => {
     writeFileSync(join(agentDir, 'AGENTS.md'), '# Test Agent\nYou are a test agent.');
     writeFileSync(join(agentDir, 'agent.json'), JSON.stringify({
       displayName: 'Test Agent',
-      slackChannels: ['C123'],
+      channels: { C123: { mode: 'mention' } },
       slackUsers: ['U456'],
       enabled: true,
     }));

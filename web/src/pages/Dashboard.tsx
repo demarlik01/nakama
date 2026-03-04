@@ -109,7 +109,7 @@ export function Dashboard() {
                   </span>
                 </div>
                 <div className="flex flex-wrap gap-x-3 gap-y-1">
-                  <span>Ch: {agent.slackChannels?.length ?? 0}</span>
+                  <span>Ch: {Object.keys(agent.channels ?? {}).length}</span>
                   <span>Users: {agent.slackUsers?.length ?? 0}</span>
                   {agent.heartbeat?.enabled && (
                     <span className="text-green-500">

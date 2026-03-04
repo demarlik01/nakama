@@ -60,7 +60,7 @@ describe('REST API - Agent CRUD', () => {
       id: 'new-agent',
       displayName: 'New Agent',
       agentsMd: '# New Agent',
-      slackChannels: ['C123'],
+      channels: { C123: { mode: 'mention' } },
       slackUsers: [],
       model: 'anthropic/claude-sonnet-4-20250514',
     });
@@ -80,7 +80,7 @@ describe('REST API - Agent CRUD', () => {
     mkdirSync(agentDir, { recursive: true });
     writeFileSync(join(agentDir, 'AGENTS.md'), '# List Agent');
     writeFileSync(join(agentDir, 'agent.json'), JSON.stringify({
-      displayName: 'List Agent', slackChannels: [], slackUsers: [], enabled: true,
+      displayName: 'List Agent', channels: {}, slackUsers: [], enabled: true,
     }));
 
     // Re-scan
@@ -116,7 +116,7 @@ describe('REST API - Agent CRUD', () => {
     const res = await api('POST', '', {
       id: 'auto-md-agent',
       displayName: 'Auto MD Agent',
-      slackChannels: ['C123'],
+      channels: { C123: { mode: 'mention' } },
       slackUsers: [],
       model: 'anthropic/claude-sonnet-4-20250514',
     });
@@ -134,7 +134,7 @@ describe('REST API - Agent CRUD', () => {
       id: 'patch-agent',
       displayName: 'Before',
       agentsMd: '# Patch Agent',
-      slackChannels: ['C123'],
+      channels: { C123: { mode: 'mention' } },
       slackUsers: [],
       model: 'anthropic/claude-sonnet-4-20250514',
     });
@@ -150,7 +150,7 @@ describe('REST API - Agent CRUD', () => {
       id: 'del-agent',
       displayName: 'Delete Me',
       agentsMd: '# Delete Agent',
-      slackChannels: ['C123'],
+      channels: { C123: { mode: 'mention' } },
       slackUsers: [],
       model: 'anthropic/claude-sonnet-4-20250514',
     });

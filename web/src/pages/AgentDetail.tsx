@@ -349,12 +349,12 @@ export function AgentDetail() {
             <div className="grid gap-1.5">
               <Label>Slack Channels (comma-separated)</Label>
               <Input
-                value={form.slackChannels?.join(", ") ?? ""}
+                value={Object.keys(form.channels ?? {}).join(", ")}
                 onChange={(e) =>
-                  setForm({
-                    ...form,
-                    slackChannels: e.target.value.split(",").map((s) => s.trim()).filter(Boolean),
-                  })
+                  setForm((prev) => ({
+                    ...prev,
+                    channels: updateChannelsFromInput(prev.channels, e.target.value),
+                  }))
                 }
               />
             </div>
@@ -787,6 +787,25 @@ function parseIsoTimestamp(value: unknown): string | undefined {
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null;
+}
+
+function updateChannelsFromInput(
+  existing: Agent["channels"] | undefined,
+  rawValue: string,
+): Agent["channels"] {
+  const channelIds = rawValue
+    .split(",")
+    .map((item) => item.trim())
+    .filter((item) => item.length > 0);
+
+  const channels: Agent["channels"] = {};
+  for (const channelId of channelIds) {
+    const preservedMode = existing?.[channelId]?.mode;
+    channels[channelId] = {
+      mode: preservedMode === "proactive" ? "proactive" : "mention",
+    };
+  }
+  return channels;
 }
 
 function parseOptionalNonNegativeInteger(value: string): number | undefined | null {

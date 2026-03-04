@@ -11,7 +11,7 @@ function createAgent(overrides: Partial<AgentDefinition> = {}): AgentDefinition 
     id: overrides.id ?? 'agent-a',
     displayName: overrides.displayName ?? 'Agent A',
     workspacePath: overrides.workspacePath ?? '/tmp/agent-a',
-    slackChannels: overrides.slackChannels ?? [],
+    channels: overrides.channels ?? {},
     slackUsers: overrides.slackUsers ?? [],
     enabled: overrides.enabled ?? true,
     slackDisplayName: overrides.slackDisplayName,

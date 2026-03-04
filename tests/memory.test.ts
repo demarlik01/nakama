@@ -70,7 +70,7 @@ function buildAgent(workspacePath: string): AgentDefinition {
     id: 'agent',
     displayName: 'Agent',
     workspacePath,
-    slackChannels: [],
+    channels: {},
     slackUsers: [],
     enabled: true,
   };
