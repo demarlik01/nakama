@@ -32,6 +32,9 @@ export function registerCommands(app: App, registry: AgentRegistry): void {
       case 'unassign':
         await handleUnassign(ack, registry, command.channel_id);
         break;
+      case 'default':
+        await handleDefault(ack, registry, args, command.channel_id);
+        break;
       case 'switch':
         await handleSwitch(ack, registry, args, command.channel_id);
         break;
@@ -56,8 +59,9 @@ function buildHelpBlocks(): { text: string; blocks: SlackBlock[] } {
           type: 'mrkdwn',
           text: [
             '`/crew agents` — 등록된 에이전트 목록',
-            '`/crew assign {agent}` — 현재 채널에 에이전트 배정',
+            '`/crew assign {agent}` — 현재 채널에 에이전트 배정 (복수 가능)',
             '`/crew unassign` — 현재 채널 배정 해제',
+            '`/crew default {agent}` — 채널 기본 에이전트 지정',
             '`/crew switch {agent}` — 현재 채널 에이전트 변경',
           ].join('\n'),
         },
@@ -82,8 +86,11 @@ async function handleAgents(ack: AckLike, registry: AgentRegistry): Promise<void
 
   for (const agent of agents) {
     const description = agent.description?.trim() || '설명 없음';
-    const channelMentions = Object.keys(agent.channels)
-      .map((channelId) => `<#${channelId}>`)
+    const channelMentions = Object.entries(agent.channels)
+      .map(([channelId, config]) => {
+        const defaultMark = config.default === true ? ' ★' : '';
+        return `<#${channelId}>${defaultMark}`;
+      })
       .join(', ');
     const channelsText = channelMentions.length > 0 ? channelMentions : '미배정';
 
@@ -122,19 +129,57 @@ async function handleAssign(ack: AckLike, registry: AgentRegistry, agentInput: s
   }
 
   const existingAssignments = registry.findBySlackChannel(channelId);
-  const assignedElsewhere = existingAssignments.find((agent) => agent.id !== match.agent.id);
-  if (assignedElsewhere !== undefined) {
+  const alreadyAssigned = existingAssignments.find((agent) => agent.id === match.agent.id);
+  if (alreadyAssigned !== undefined) {
     await ackEphemeral(
       ack,
-      buildErrorBlocks(
-        `현재 채널은 *${assignedElsewhere.displayName}* (\`${assignedElsewhere.id}\`) 에 배정되어 있습니다. \`/crew switch ${match.agent.id}\` 를 사용하세요.`,
+      buildInfoBlocks(
+        `*${match.agent.displayName}* (\`${match.agent.id}\`) 은 이미 채널 <#${channelId}> 에 배정되어 있습니다.`,
       ),
     );
     return;
   }
 
   await registry.assignChannel(match.agent.id, channelId, 'mention');
-  await ackEphemeral(ack, buildSuccessBlocks(`채널 <#${channelId}> 을 *${match.agent.displayName}* 에 배정했습니다.`));
+
+  const totalAssigned = existingAssignments.length + 1;
+  const countInfo = totalAssigned > 1 ? ` (총 ${totalAssigned}개 에이전트)` : '';
+  await ackEphemeral(ack, buildSuccessBlocks(`채널 <#${channelId}> 에 *${match.agent.displayName}* 을 배정했습니다.${countInfo}`));
+}
+
+async function handleDefault(ack: AckLike, registry: AgentRegistry, agentInput: string, channelId: string): Promise<void> {
+  if (agentInput.length === 0) {
+    await ackEphemeral(ack, buildUsageBlocks('/crew default {agent}'));
+    return;
+  }
+
+  const match = findAgentByIdOrDisplayName(registry, agentInput);
+  if (match.type === 'none') {
+    await ackEphemeral(ack, buildErrorBlocks(`에이전트를 찾을 수 없습니다: \`${agentInput}\``));
+    return;
+  }
+  if (match.type === 'ambiguous') {
+    await ackEphemeral(ack, buildAmbiguousBlocks(agentInput, match.matches));
+    return;
+  }
+
+  const existingAssignments = registry.findBySlackChannel(channelId);
+  const isAssigned = existingAssignments.some((agent) => agent.id === match.agent.id);
+  if (!isAssigned) {
+    await ackEphemeral(
+      ack,
+      buildErrorBlocks(
+        `*${match.agent.displayName}* (\`${match.agent.id}\`) 은 채널 <#${channelId}> 에 배정되어 있지 않습니다. 먼저 \`/crew assign ${match.agent.id}\` 로 배정하세요.`,
+      ),
+    );
+    return;
+  }
+
+  await registry.setChannelDefault(match.agent.id, channelId);
+  await ackEphemeral(
+    ack,
+    buildSuccessBlocks(`채널 <#${channelId}> 의 기본 에이전트를 *${match.agent.displayName}* 으로 설정했습니다.`),
+  );
 }
 
 async function handleUnassign(ack: AckLike, registry: AgentRegistry, channelId: string): Promise<void> {

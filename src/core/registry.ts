@@ -141,6 +141,50 @@ export class AgentRegistry extends EventEmitter<AgentRegistryEvents> {
     return this.update(agentId, { channels: nextChannels });
   }
 
+  async setChannelDefault(agentId: string, channelId: string): Promise<AgentDefinition> {
+    const existing = this.agents.get(agentId);
+    if (existing === undefined) {
+      throw new NotFoundError(`Agent not found: ${agentId}`);
+    }
+
+    const normalizedChannelId = channelId.trim();
+    if (normalizedChannelId.length === 0) {
+      throw new Error('channelId must be a non-empty string');
+    }
+
+    // Verify assignment before making any changes
+    const channelConfig = existing.channels[normalizedChannelId];
+    if (channelConfig === undefined) {
+      throw new Error(`Agent ${agentId} is not assigned to channel ${normalizedChannelId}`);
+    }
+
+    // Clear default flag from all other agents for this channel
+    for (const agent of this.agents.values()) {
+      const otherConfig = agent.channels[normalizedChannelId];
+      if (otherConfig?.default === true && agent.id !== agentId) {
+        const nextChannels: Record<string, ChannelConfig> = { ...agent.channels };
+        nextChannels[normalizedChannelId] = { ...otherConfig, default: undefined };
+        await this.update(agent.id, { channels: nextChannels });
+      }
+    }
+
+    const nextChannels: Record<string, ChannelConfig> = {
+      ...existing.channels,
+      [normalizedChannelId]: { ...channelConfig, default: true },
+    };
+
+    return this.update(agentId, { channels: nextChannels });
+  }
+
+  findChannelDefault(channelId: string): AgentDefinition | undefined {
+    for (const agent of this.agents.values()) {
+      if (agent.enabled && agent.channels[channelId]?.default === true) {
+        return agent;
+      }
+    }
+    return undefined;
+  }
+
   async unassignChannel(agentId: string, channelId: string): Promise<AgentDefinition> {
     const existing = this.agents.get(agentId);
     if (existing === undefined) {
@@ -840,8 +884,10 @@ function asChannelMap(value: unknown, label: string): Record<string, ChannelConf
     if (!isObject(channelConfig)) {
       throw new Error(`${label}.${channelId} must be an object`);
     }
+    const isDefault = channelConfig.default === true ? true : undefined;
     channels[channelId] = {
       mode: asChannelMode(channelConfig.mode, `${label}.${channelId}.mode`),
+      ...(isDefault !== undefined ? { default: isDefault } : {}),
     };
   }
 

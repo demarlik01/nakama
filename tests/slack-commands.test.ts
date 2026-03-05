@@ -83,4 +83,99 @@ describe('Slack /crew command', () => {
     const payload = ack.mock.calls[0]?.[0] as Record<string, unknown>;
     expect(payload.text).toContain('/crew switch');
   });
+
+  it('assign allows multiple agents to the same channel', async () => {
+    const alpha = {
+      id: 'alpha',
+      displayName: 'Alpha',
+      channels: { C123: { mode: 'mention' as const } },
+      slackUsers: [],
+      enabled: true,
+    };
+    const beta = {
+      id: 'beta',
+      displayName: 'Beta',
+      channels: {},
+      slackUsers: [],
+      enabled: true,
+    };
+
+    const assignChannel = vi.fn();
+    const ack = await runCrew('assign beta', {
+      getAll: () => [alpha, beta],
+      findBySlackChannel: () => [alpha],
+      assignChannel,
+    });
+
+    expect(assignChannel).toHaveBeenCalledWith('beta', 'C123', 'mention');
+    const payload = ack.mock.calls[0]?.[0] as Record<string, unknown>;
+    expect(payload.text).toContain('Beta');
+    expect(payload.text).toContain('총 2개 에이전트');
+  });
+
+  it('assign shows info when agent is already assigned', async () => {
+    const alpha = {
+      id: 'alpha',
+      displayName: 'Alpha',
+      channels: { C123: { mode: 'mention' as const } },
+      slackUsers: [],
+      enabled: true,
+    };
+
+    const assignChannel = vi.fn();
+    const ack = await runCrew('assign alpha', {
+      getAll: () => [alpha],
+      findBySlackChannel: () => [alpha],
+      assignChannel,
+    });
+
+    expect(assignChannel).not.toHaveBeenCalled();
+    const payload = ack.mock.calls[0]?.[0] as Record<string, unknown>;
+    expect(payload.text).toContain('이미');
+  });
+
+  it('default without agent name shows usage', async () => {
+    const ack = await runCrew('default');
+    const payload = ack.mock.calls[0]?.[0] as Record<string, unknown>;
+    expect(payload.text).toContain('/crew default');
+  });
+
+  it('default sets default agent for channel', async () => {
+    const alpha = {
+      id: 'alpha',
+      displayName: 'Alpha',
+      channels: { C123: { mode: 'mention' as const } },
+      slackUsers: [],
+      enabled: true,
+    };
+
+    const setChannelDefault = vi.fn();
+    const ack = await runCrew('default alpha', {
+      getAll: () => [alpha],
+      findBySlackChannel: () => [alpha],
+      setChannelDefault,
+    });
+
+    expect(setChannelDefault).toHaveBeenCalledWith('alpha', 'C123');
+    const payload = ack.mock.calls[0]?.[0] as Record<string, unknown>;
+    expect(payload.text).toContain('기본 에이전트');
+  });
+
+  it('default errors when agent not assigned to channel', async () => {
+    const alpha = {
+      id: 'alpha',
+      displayName: 'Alpha',
+      channels: {},
+      slackUsers: [],
+      enabled: true,
+    };
+
+    const ack = await runCrew('default alpha', {
+      getAll: () => [alpha],
+      findBySlackChannel: () => [],
+    });
+
+    const payload = ack.mock.calls[0]?.[0] as Record<string, unknown>;
+    expect(payload.text).toContain('배정되어 있지 않습니다');
+  });
 });

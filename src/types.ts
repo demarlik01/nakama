@@ -30,6 +30,7 @@ export type ChannelMode = 'mention' | 'proactive';
 
 export interface ChannelConfig {
   mode: ChannelMode;
+  default?: boolean;
 }
 
 export interface AgentDefinition {

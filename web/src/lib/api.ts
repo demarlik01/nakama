@@ -2,6 +2,7 @@ export type ChannelMode = "mention" | "proactive";
 
 export interface ChannelConfig {
   mode: ChannelMode;
+  default?: boolean;
 }
 
 export interface Agent {
@@ -230,7 +231,8 @@ function normalizeChannels(
       }
 
       const mode = rawConfig.mode === "proactive" ? "proactive" : "mention";
-      normalized[channelId] = { mode };
+      const isDefault = rawConfig.default === true ? true : undefined;
+      normalized[channelId] = { mode, ...(isDefault !== undefined ? { default: isDefault } : {}) };
     }
     return normalized;
   }

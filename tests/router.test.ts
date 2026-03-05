@@ -40,6 +40,8 @@ function createRouter(agents: AgentDefinition[]): MessageRouter {
       sorted.find((agent) => agent.enabled && agent.slackUsers.includes(userId)),
     findBySlackChannel: (channelId: string) =>
       sorted.filter((agent) => agent.enabled && Object.keys(agent.channels).includes(channelId)),
+    findChannelDefault: (channelId: string) =>
+      sorted.find((agent) => agent.enabled && agent.channels[channelId]?.default === true),
   } as unknown as AgentRegistry;
 
   const sessionManager = {
@@ -360,5 +362,77 @@ describe('MessageRouter mention disambiguation', () => {
     };
 
     expect(router.route(event)).toBeNull();
+  });
+
+  it('routes to default agent when multiple agents in channel and no name match', () => {
+    const alpha = createAgent({
+      id: 'alpha',
+      displayName: 'Alpha',
+      channels: { C_SHARED: { mode: 'proactive' } },
+    });
+    const beta = createAgent({
+      id: 'beta',
+      displayName: 'Beta',
+      channels: { C_SHARED: { mode: 'proactive', default: true } },
+    });
+    const router = createRouter([alpha, beta]);
+
+    const event: SlackMessageEvent = {
+      type: 'message',
+      channel: 'C_SHARED',
+      text: '안녕하세요',
+    };
+    const route = router.route(event);
+
+    expect(route?.type).toBe('agent');
+    expect(route && route.type === 'agent' ? route.agent.id : undefined).toBe('beta');
+  });
+
+  it('routes to named agent even when another is default', () => {
+    const alpha = createAgent({
+      id: 'alpha',
+      displayName: 'Alpha',
+      channels: { C_SHARED: { mode: 'proactive' } },
+    });
+    const beta = createAgent({
+      id: 'beta',
+      displayName: 'Beta',
+      channels: { C_SHARED: { mode: 'proactive', default: true } },
+    });
+    const router = createRouter([alpha, beta]);
+
+    const event: SlackMessageEvent = {
+      type: 'message',
+      channel: 'C_SHARED',
+      text: 'alpha 이거 해줘',
+    };
+    const route = router.route(event);
+
+    expect(route?.type).toBe('agent');
+    expect(route && route.type === 'agent' ? route.agent.id : undefined).toBe('alpha');
+  });
+
+  it('falls back to first agent when no default is set in multi-agent channel', () => {
+    const alpha = createAgent({
+      id: 'alpha',
+      displayName: 'Alpha',
+      channels: { C_SHARED: { mode: 'proactive' } },
+    });
+    const beta = createAgent({
+      id: 'beta',
+      displayName: 'Beta',
+      channels: { C_SHARED: { mode: 'proactive' } },
+    });
+    const router = createRouter([alpha, beta]);
+
+    const event: SlackMessageEvent = {
+      type: 'message',
+      channel: 'C_SHARED',
+      text: '안녕하세요',
+    };
+    const route = router.route(event);
+
+    expect(route?.type).toBe('agent');
+    expect(route && route.type === 'agent' ? route.agent.id : undefined).toBe('alpha');
   });
 });

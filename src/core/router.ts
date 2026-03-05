@@ -81,7 +81,7 @@ export class MessageRouter {
         event.type === 'message'
           ? channelAgents.filter((agent) => getChannelMode(agent, channelId) === 'proactive')
           : channelAgents;
-      const selected = this.selectChannelAgent(routableChannelAgents, event.user, event.text);
+      const selected = this.selectChannelAgent(routableChannelAgents, event.user, event.text, channelId);
       if (selected !== undefined) {
         return { type: 'agent', agent: selected, threadTs };
       }
@@ -121,6 +121,7 @@ export class MessageRouter {
     channelAgents: AgentDefinition[],
     userId?: string,
     text?: string,
+    channelId?: string,
   ): AgentDefinition | undefined {
     if (channelAgents.length === 0) {
       return undefined;
@@ -147,6 +148,14 @@ export class MessageRouter {
         candidateIds: byMention.candidateIds,
       });
       return undefined;
+    }
+
+    // Prefer the channel's default agent
+    if (channelId !== undefined) {
+      const defaultAgent = this.registry.findChannelDefault(channelId);
+      if (defaultAgent !== undefined && channelAgents.some((a) => a.id === defaultAgent.id)) {
+        return defaultAgent;
+      }
     }
 
     return channelAgents[0];

@@ -527,8 +527,10 @@ function asChannelMap(value: unknown, label: string): Record<string, ChannelConf
     }
 
     const configObject = asObject(channelConfig, `${label}.${channelId}`);
+    const isDefault = configObject.default === true ? true : undefined;
     channels[channelId] = {
       mode: asChannelMode(configObject.mode, `${label}.${channelId}.mode`),
+      ...(isDefault !== undefined ? { default: isDefault } : {}),
     };
   }
 
