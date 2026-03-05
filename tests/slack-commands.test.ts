@@ -13,40 +13,74 @@ type CommandHandlerArgs = {
 
 type CommandHandler = (args: CommandHandlerArgs) => Promise<void>;
 
-describe('Slack slash commands', () => {
-  it('assigning to nonexistent agent returns error', async () => {
-    const handlers = new Map<string, CommandHandler>();
-    const app = {
-      command: vi.fn((name: string, handler: CommandHandler) => {
-        handlers.set(name, handler);
-      }),
-    };
+function setupCrew(registry?: Partial<AgentRegistry>) {
+  const handlers = new Map<string, CommandHandler>();
+  const app = {
+    command: vi.fn((name: string, handler: CommandHandler) => {
+      handlers.set(name, handler);
+    }),
+  };
 
-    const registry = {
-      getAll: () => [],
-      findBySlackChannel: () => [],
-      assignChannel: vi.fn(),
-      unassignChannel: vi.fn(),
-    } as unknown as AgentRegistry;
+  const defaultRegistry = {
+    getAll: () => [],
+    findBySlackChannel: () => [],
+    assignChannel: vi.fn(),
+    unassignChannel: vi.fn(),
+    ...registry,
+  } as unknown as AgentRegistry;
 
-    registerCommands(app as any, registry);
+  registerCommands(app as any, defaultRegistry);
 
-    const assign = handlers.get('/assign');
-    expect(assign).toBeDefined();
+  const crew = handlers.get('/crew');
+  return { crew: crew!, registry: defaultRegistry };
+}
 
-    const ack = vi.fn(async (_payload: Record<string, unknown>) => ({}));
-    await assign!({
-      command: {
-        text: 'missing-agent',
-        channel_id: 'C123',
-      },
-      ack,
-    });
+async function runCrew(text: string, registry?: Partial<AgentRegistry>) {
+  const { crew } = setupCrew(registry);
+  const ack = vi.fn(async (_payload: Record<string, unknown>) => ({}));
+  await crew({ command: { text, channel_id: 'C123' }, ack });
+  return ack;
+}
 
+describe('Slack /crew command', () => {
+  it('shows help when no subcommand given', async () => {
+    const ack = await runCrew('');
+    expect(ack).toHaveBeenCalledTimes(1);
+    const payload = ack.mock.calls[0]?.[0] as Record<string, unknown>;
+    expect(payload.response_type).toBe('ephemeral');
+    expect(payload.text).toBe('/crew 사용법');
+  });
+
+  it('assign to nonexistent agent returns error', async () => {
+    const ack = await runCrew('assign missing-agent');
     expect(ack).toHaveBeenCalledTimes(1);
     const payload = ack.mock.calls[0]?.[0] as Record<string, unknown>;
     expect(payload.response_type).toBe('ephemeral');
     expect(typeof payload.text).toBe('string');
     expect(payload.text).toContain('에이전트를 찾을 수 없습니다');
+  });
+
+  it('assign without agent name shows usage', async () => {
+    const ack = await runCrew('assign');
+    const payload = ack.mock.calls[0]?.[0] as Record<string, unknown>;
+    expect(payload.text).toContain('/crew assign');
+  });
+
+  it('agents with no agents shows info', async () => {
+    const ack = await runCrew('agents');
+    const payload = ack.mock.calls[0]?.[0] as Record<string, unknown>;
+    expect(payload.text).toContain('등록된 에이전트가 없습니다');
+  });
+
+  it('unassign with no assignments shows info', async () => {
+    const ack = await runCrew('unassign');
+    const payload = ack.mock.calls[0]?.[0] as Record<string, unknown>;
+    expect(payload.text).toContain('배정된 에이전트가 없습니다');
+  });
+
+  it('switch without agent name shows usage', async () => {
+    const ack = await runCrew('switch');
+    const payload = ack.mock.calls[0]?.[0] as Record<string, unknown>;
+    expect(payload.text).toContain('/crew switch');
   });
 });

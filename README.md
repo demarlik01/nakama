@@ -73,17 +73,18 @@
 
 ## 문서
 
+- **[사용 가이드](docs/usage-guide.md)** — 슬랙 대화, 슬래시 커맨드, 채널 모드, API 사용법
 - [PRD](docs/PRD.md) — 제품 요구사항
 - [Architecture](docs/architecture.md) — 상세 아키텍처
 - [PoC Specs](docs/spec/) — 구현 스펙
 
 ## 시작하기
 
-> Phase 1 개발 중. 아직 실행 가능한 코드 없음.
-
 ```bash
-# TODO
 npm install
-cp config.example.yaml config.yaml
-npm run dev
+cp config.example.yaml config.yaml  # Slack 토큰, API 키 등 설정
+npm run build
+npx pm2 start ecosystem.config.cjs
 ```
+
+자세한 사용법은 **[사용 가이드](docs/usage-guide.md)** 참고.

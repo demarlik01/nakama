@@ -238,7 +238,7 @@ describe('MessageRouter mention disambiguation', () => {
 
     expect(route?.type).toBe('concierge');
     const responseText = collectBlockText(route && route.type === 'concierge' ? route.response : []);
-    expect(responseText).toContain('/assign {agent} 명령어로 에이전트를 배정하세요');
+    expect(responseText).toContain('/crew assign {agent} 명령어로 에이전트를 배정하세요');
   });
 
   it('includes available agent names in concierge response', () => {

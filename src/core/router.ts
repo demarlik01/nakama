@@ -276,7 +276,7 @@ export function buildConciergeResponse(registry: AgentRegistry): SlackBlock[] {
       elements: [
         {
           type: 'mrkdwn',
-          text: '/assign {agent} 명령어로 에이전트를 배정하세요',
+          text: '/crew assign {agent} 명령어로 에이전트를 배정하세요',
         },
       ],
     },

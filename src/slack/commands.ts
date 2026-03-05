@@ -17,151 +17,179 @@ type AckPayload = {
 type AckLike = (response: AckPayload) => Promise<unknown>;
 
 export function registerCommands(app: App, registry: AgentRegistry): void {
-  app.command('/assign', async ({ command, ack }) => {
-    const agentInput = command.text.trim();
-    if (agentInput.length === 0) {
-      await ackEphemeral(ack, buildUsageBlocks('/assign {agent}'));
-      return;
-    }
+  app.command('/crew', async ({ command, ack }) => {
+    const parts = command.text.trim().split(/\s+/);
+    const subcommand = parts[0]?.toLowerCase() ?? '';
+    const args = parts.slice(1).join(' ').trim();
 
-    const match = findAgentByIdOrDisplayName(registry, agentInput);
-    if (match.type === 'none') {
-      await ackEphemeral(ack, buildErrorBlocks(`에이전트를 찾을 수 없습니다: \`${agentInput}\``));
-      return;
+    switch (subcommand) {
+      case 'agents':
+        await handleAgents(ack, registry);
+        break;
+      case 'assign':
+        await handleAssign(ack, registry, args, command.channel_id);
+        break;
+      case 'unassign':
+        await handleUnassign(ack, registry, command.channel_id);
+        break;
+      case 'switch':
+        await handleSwitch(ack, registry, args, command.channel_id);
+        break;
+      default:
+        await ackEphemeral(ack, buildHelpBlocks());
+        break;
     }
-    if (match.type === 'ambiguous') {
-      await ackEphemeral(ack, buildAmbiguousBlocks(agentInput, match.matches));
-      return;
-    }
-
-    const channelId = command.channel_id;
-    const existingAssignments = registry.findBySlackChannel(channelId);
-    const assignedElsewhere = existingAssignments.find((agent) => agent.id !== match.agent.id);
-    if (assignedElsewhere !== undefined) {
-      await ackEphemeral(
-        ack,
-        buildErrorBlocks(
-          `현재 채널은 *${assignedElsewhere.displayName}* (\`${assignedElsewhere.id}\`) 에 배정되어 있습니다. \`/switch ${match.agent.id}\` 를 사용하세요.`,
-        ),
-      );
-      return;
-    }
-
-    await registry.assignChannel(match.agent.id, channelId, 'mention');
-    await ackEphemeral(ack, buildSuccessBlocks(`채널 <#${channelId}> 을 *${match.agent.displayName}* 에 배정했습니다.`));
   });
+}
 
-  app.command('/unassign', async ({ command, ack }) => {
-    const channelId = command.channel_id;
-    const assignedAgents = registry.findBySlackChannel(channelId);
-
-    if (assignedAgents.length === 0) {
-      await ackEphemeral(ack, buildInfoBlocks(`채널 <#${channelId}> 에 배정된 에이전트가 없습니다.`));
-      return;
-    }
-
-    for (const agent of assignedAgents) {
-      await registry.unassignChannel(agent.id, channelId);
-    }
-
-    const removedText =
-      assignedAgents.length === 1
-        ? `채널 <#${channelId}> 배정을 해제했습니다: *${assignedAgents[0]?.displayName}*`
-        : `채널 <#${channelId}> 에서 ${assignedAgents.length}개 에이전트 배정을 모두 해제했습니다.`;
-    await ackEphemeral(ack, buildSuccessBlocks(removedText));
-  });
-
-  app.command('/agents', async ({ ack }) => {
-    const agents = registry.getAll();
-    if (agents.length === 0) {
-      await ackEphemeral(
-        ack,
-        buildInfoBlocks('등록된 에이전트가 없습니다.'),
-      );
-      return;
-    }
-
-    const blocks: SlackBlock[] = [
+function buildHelpBlocks(): { text: string; blocks: SlackBlock[] } {
+  return {
+    text: '/crew 사용법',
+    blocks: [
       {
         type: 'header',
+        text: { type: 'plain_text', text: '/crew', emoji: true },
+      },
+      {
+        type: 'section',
         text: {
-          type: 'plain_text',
-          text: 'Available Agents',
-          emoji: true,
+          type: 'mrkdwn',
+          text: [
+            '`/crew agents` — 등록된 에이전트 목록',
+            '`/crew assign {agent}` — 현재 채널에 에이전트 배정',
+            '`/crew unassign` — 현재 채널 배정 해제',
+            '`/crew switch {agent}` — 현재 채널 에이전트 변경',
+          ].join('\n'),
         },
       },
-    ];
+    ],
+  };
+}
 
-    for (const agent of agents) {
-      const description = agent.description?.trim() || '설명 없음';
-      const channelMentions = Object.keys(agent.channels)
-        .map((channelId) => `<#${channelId}>`)
-        .join(', ');
-      const channelsText = channelMentions.length > 0 ? channelMentions : '미배정';
+async function handleAgents(ack: AckLike, registry: AgentRegistry): Promise<void> {
+  const agents = registry.getAll();
+  if (agents.length === 0) {
+    await ackEphemeral(ack, buildInfoBlocks('등록된 에이전트가 없습니다.'));
+    return;
+  }
 
-      blocks.push(
-        {
-          type: 'section',
-          text: {
-            type: 'mrkdwn',
-            text: `*${agent.displayName}* (\`${agent.id}\`)\n${description}`,
-          },
+  const blocks: SlackBlock[] = [
+    {
+      type: 'header',
+      text: { type: 'plain_text', text: 'Available Agents', emoji: true },
+    },
+  ];
+
+  for (const agent of agents) {
+    const description = agent.description?.trim() || '설명 없음';
+    const channelMentions = Object.keys(agent.channels)
+      .map((channelId) => `<#${channelId}>`)
+      .join(', ');
+    const channelsText = channelMentions.length > 0 ? channelMentions : '미배정';
+
+    blocks.push(
+      {
+        type: 'section',
+        text: {
+          type: 'mrkdwn',
+          text: `*${agent.displayName}* (\`${agent.id}\`)\n${description}`,
         },
-        {
-          type: 'context',
-          elements: [
-            {
-              type: 'mrkdwn',
-              text: `채널: ${channelsText}`,
-            },
-          ],
-        },
-      );
-    }
+      },
+      {
+        type: 'context',
+        elements: [{ type: 'mrkdwn', text: `채널: ${channelsText}` }],
+      },
+    );
+  }
 
-    await ackEphemeral(ack, {
-      text: `${agents.length}개 에이전트`,
-      blocks,
-    });
-  });
+  await ackEphemeral(ack, { text: `${agents.length}개 에이전트`, blocks });
+}
 
-  app.command('/switch', async ({ command, ack }) => {
-    const agentInput = command.text.trim();
-    if (agentInput.length === 0) {
-      await ackEphemeral(ack, buildUsageBlocks('/switch {agent}'));
-      return;
-    }
+async function handleAssign(ack: AckLike, registry: AgentRegistry, agentInput: string, channelId: string): Promise<void> {
+  if (agentInput.length === 0) {
+    await ackEphemeral(ack, buildUsageBlocks('/crew assign {agent}'));
+    return;
+  }
 
-    const match = findAgentByIdOrDisplayName(registry, agentInput);
-    if (match.type === 'none') {
-      await ackEphemeral(ack, buildErrorBlocks(`에이전트를 찾을 수 없습니다: \`${agentInput}\``));
-      return;
-    }
-    if (match.type === 'ambiguous') {
-      await ackEphemeral(ack, buildAmbiguousBlocks(agentInput, match.matches));
-      return;
-    }
+  const match = findAgentByIdOrDisplayName(registry, agentInput);
+  if (match.type === 'none') {
+    await ackEphemeral(ack, buildErrorBlocks(`에이전트를 찾을 수 없습니다: \`${agentInput}\``));
+    return;
+  }
+  if (match.type === 'ambiguous') {
+    await ackEphemeral(ack, buildAmbiguousBlocks(agentInput, match.matches));
+    return;
+  }
 
-    const channelId = command.channel_id;
-    const existingAssignments = registry.findBySlackChannel(channelId);
-    const previousAgents = existingAssignments.filter((agent) => agent.id !== match.agent.id);
-
-    for (const previous of previousAgents) {
-      await registry.unassignChannel(previous.id, channelId);
-    }
-    await registry.assignChannel(match.agent.id, channelId, 'mention');
-
-    if (previousAgents.length === 0) {
-      await ackEphemeral(ack, buildSuccessBlocks(`채널 <#${channelId}> 을 *${match.agent.displayName}* 로 설정했습니다.`));
-      return;
-    }
-
-    const fromNames = previousAgents.map((agent) => `*${agent.displayName}*`).join(', ');
+  const existingAssignments = registry.findBySlackChannel(channelId);
+  const assignedElsewhere = existingAssignments.find((agent) => agent.id !== match.agent.id);
+  if (assignedElsewhere !== undefined) {
     await ackEphemeral(
       ack,
-      buildSuccessBlocks(`채널 <#${channelId}> 기본 에이전트를 ${fromNames} 에서 *${match.agent.displayName}* 로 변경했습니다.`),
+      buildErrorBlocks(
+        `현재 채널은 *${assignedElsewhere.displayName}* (\`${assignedElsewhere.id}\`) 에 배정되어 있습니다. \`/crew switch ${match.agent.id}\` 를 사용하세요.`,
+      ),
     );
-  });
+    return;
+  }
+
+  await registry.assignChannel(match.agent.id, channelId, 'mention');
+  await ackEphemeral(ack, buildSuccessBlocks(`채널 <#${channelId}> 을 *${match.agent.displayName}* 에 배정했습니다.`));
+}
+
+async function handleUnassign(ack: AckLike, registry: AgentRegistry, channelId: string): Promise<void> {
+  const assignedAgents = registry.findBySlackChannel(channelId);
+
+  if (assignedAgents.length === 0) {
+    await ackEphemeral(ack, buildInfoBlocks(`채널 <#${channelId}> 에 배정된 에이전트가 없습니다.`));
+    return;
+  }
+
+  for (const agent of assignedAgents) {
+    await registry.unassignChannel(agent.id, channelId);
+  }
+
+  const removedText =
+    assignedAgents.length === 1
+      ? `채널 <#${channelId}> 배정을 해제했습니다: *${assignedAgents[0]?.displayName}*`
+      : `채널 <#${channelId}> 에서 ${assignedAgents.length}개 에이전트 배정을 모두 해제했습니다.`;
+  await ackEphemeral(ack, buildSuccessBlocks(removedText));
+}
+
+async function handleSwitch(ack: AckLike, registry: AgentRegistry, agentInput: string, channelId: string): Promise<void> {
+  if (agentInput.length === 0) {
+    await ackEphemeral(ack, buildUsageBlocks('/crew switch {agent}'));
+    return;
+  }
+
+  const match = findAgentByIdOrDisplayName(registry, agentInput);
+  if (match.type === 'none') {
+    await ackEphemeral(ack, buildErrorBlocks(`에이전트를 찾을 수 없습니다: \`${agentInput}\``));
+    return;
+  }
+  if (match.type === 'ambiguous') {
+    await ackEphemeral(ack, buildAmbiguousBlocks(agentInput, match.matches));
+    return;
+  }
+
+  const existingAssignments = registry.findBySlackChannel(channelId);
+  const previousAgents = existingAssignments.filter((agent) => agent.id !== match.agent.id);
+
+  for (const previous of previousAgents) {
+    await registry.unassignChannel(previous.id, channelId);
+  }
+  await registry.assignChannel(match.agent.id, channelId, 'mention');
+
+  if (previousAgents.length === 0) {
+    await ackEphemeral(ack, buildSuccessBlocks(`채널 <#${channelId}> 을 *${match.agent.displayName}* 로 설정했습니다.`));
+    return;
+  }
+
+  const fromNames = previousAgents.map((agent) => `*${agent.displayName}*`).join(', ');
+  await ackEphemeral(
+    ack,
+    buildSuccessBlocks(`채널 <#${channelId}> 기본 에이전트를 ${fromNames} 에서 *${match.agent.displayName}* 로 변경했습니다.`),
+  );
 }
 
 function findAgentByIdOrDisplayName(registry: AgentRegistry, rawInput: string): AgentLookupResult {
