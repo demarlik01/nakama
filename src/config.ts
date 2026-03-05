@@ -74,6 +74,13 @@ export function validateAppConfig(config: unknown): AppConfig {
     ? 'session.sessionTTLDays'
     : 'session.ttlDays';
 
+  const toolsConfig = root.tools !== undefined && root.tools !== null
+    ? requireObject(root.tools, 'tools')
+    : undefined;
+  const webSearchConfig = toolsConfig?.webSearch !== undefined && toolsConfig?.webSearch !== null
+    ? requireObject(toolsConfig.webSearch, 'tools.webSearch')
+    : undefined;
+
   return {
     server: {
       port: requireNumber(server.port, 'server.port'),
@@ -119,6 +126,13 @@ export function validateAppConfig(config: unknown): AppConfig {
       ),
       ttlDays: requireNonNegativeNumber(configuredSessionTtlDays, sessionTtlLabel),
     },
+    tools: webSearchConfig
+      ? {
+          webSearch: {
+            braveApiKey: requireString(webSearchConfig.braveApiKey, 'tools.webSearch.braveApiKey'),
+          },
+        }
+      : undefined,
   };
 }
 

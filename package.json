@@ -19,12 +19,15 @@
     "@mariozechner/pi-agent-core": "latest",
     "@mariozechner/pi-ai": "latest",
     "@mariozechner/pi-coding-agent": "latest",
+    "@mozilla/readability": "^0.6.0",
+    "@sinclair/typebox": "^0.34.48",
     "@slack/bolt": "^4.x",
     "@slack/web-api": "^7.14.1",
     "better-sqlite3": "^12.6.2",
     "chokidar": "^4.x",
     "croner": "^10.0.1",
     "express": "^4.x",
+    "linkedom": "^0.18.12",
     "yaml": "^2.x"
   },
   "devDependencies": {

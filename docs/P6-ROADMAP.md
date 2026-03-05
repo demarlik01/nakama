@@ -132,28 +132,39 @@
 
 ## Phase 4: 커스텀 툴 확장
 
-**목표:** 에이전트에 웹검색/브라우저 같은 추가 도구 제공
+**목표:** 에이전트에 웹검색/메모리 같은 추가 도구 제공
 
 **현재 상태:**
 - Pi SDK `codingTools` = read, write, edit, bash 만 제공
-- 웹검색, URL fetch, 브라우저 없음
+- 웹검색, URL fetch, 메모리 없음
+
+### Phase 4a: 필수 툴 (이번 구현)
+
+| 툴 | 설명 | 우선순위 |
+|---|---|---|
+| `web_search` | 웹 검색 (Brave Search API) | P0 |
+| `web_fetch` | URL → 마크다운 추출 | P0 |
+| `memory_read` | 에이전트 메모리 파일 읽기 | P0 |
+| `memory_write` | 에이전트 메모리 파일 쓰기 | P0 |
 
 **구현 방안:**
-- Pi SDK 커스텀 Tool 인터페이스로 추가 도구 정의:
-  - `web_search` — Brave Search / Tavily API
-  - `web_fetch` — URL → 마크다운 추출
+- Pi SDK `AgentTool` 인터페이스로 커스텀 툴 정의
 - agent.json에서 사용할 도구 세트 선택 가능하게:
   ```json
-  "tools": ["coding", "web_search", "web_fetch"]
+  "tools": ["coding", "web_search", "web_fetch", "memory"]
   ```
 - 기본값: `["coding"]` (기존 동작 유지)
+- OpenClaw 구현 분석 → [tool-research.md](./tool-research.md) 참고
 
-**체크리스트:**
-- [ ] Pi SDK Tool 인터페이스 확인 및 커스텀 툴 타입 정의
-- [ ] `web_search` 툴 구현 (API 키 config.yaml에서 관리)
-- [ ] `web_fetch` 툴 구현
-- [ ] agent.json `tools` 필드 추가 + 레지스트리에서 도구 세트 조합
+**체크리스트 (Phase 4a):**
+- [ ] Pi SDK AgentTool 인터페이스 확인 및 커스텀 툴 타입 정의
+- [ ] `web_search` 툴 구현 (Brave Search API, 키는 config.yaml)
+- [ ] `web_fetch` 툴 구현 (URL → markdown 변환)
+- [ ] `memory_read` / `memory_write` 툴 구현 (워크스페이스 내 memory/ 디렉토리)
+- [ ] agent.json `tools` 필드 추가 + 툴 레지스트리에서 조합
+- [ ] 시스템 프롬프트에 각 툴 사용법 가이드 추가
 - [ ] 테스트: 에이전트가 웹검색 요청 → 결과 반환
+- [ ] 테스트: 메모리 읽기/쓰기 → 파일 영속화
 
 ## Phase 5: 슬랙 파일 첨부
 

@@ -52,6 +52,7 @@ export interface AgentDefinition {
   cron?: CronJobConfig[];
   limits?: LimitsConfig;
   reactionTriggers?: string[];
+  tools?: string[];
 }
 
 export interface AppConfig {
@@ -71,6 +72,11 @@ export interface AppConfig {
     maxQueueSize: number;
     autoSummaryOnDispose: boolean;
     ttlDays: number;
+  };
+  tools?: {
+    webSearch?: {
+      braveApiKey: string;
+    };
   };
 }
 
@@ -92,6 +98,7 @@ export interface AgentMetadata {
   cron?: CronJobConfig[];
   limits?: LimitsConfig;
   reactionTriggers?: string[];
+  tools?: string[];
 }
 
 export interface CreateAgentParams {
@@ -113,6 +120,7 @@ export interface CreateAgentParams {
   cron?: CronJobConfig[];
   limits?: LimitsConfig;
   reactionTriggers?: string[];
+  tools?: string[];
 }
 
 export interface UpdateAgentParams {
@@ -133,6 +141,7 @@ export interface UpdateAgentParams {
   cron?: CronJobConfig[];
   limits?: LimitsConfig;
   reactionTriggers?: string[];
+  tools?: string[];
 }
 
 export type SessionStatus = 'idle' | 'running' | 'error' | 'disposed';

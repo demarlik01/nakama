@@ -194,6 +194,7 @@ export class AgentRegistry extends EventEmitter<AgentRegistryEvents> {
         cron: params.cron,
         limits: params.limits,
         reactionTriggers: params.reactionTriggers,
+        tools: params.tools,
       } satisfies AgentMetadata),
       initializeMemoryFiles(workspacePath),
       initializeSkillsFiles(workspacePath),
@@ -270,6 +271,7 @@ export class AgentRegistry extends EventEmitter<AgentRegistryEvents> {
       cron: params.cron ?? currentMetadata.cron,
       limits: params.limits ?? currentMetadata.limits,
       reactionTriggers: params.reactionTriggers ?? currentMetadata.reactionTriggers,
+      tools: params.tools ?? currentMetadata.tools,
     };
 
     await writeJson(metadataPath, mergedMetadata);
@@ -485,6 +487,7 @@ export class AgentRegistry extends EventEmitter<AgentRegistryEvents> {
       cron: metadata.cron,
       limits: metadata.limits,
       reactionTriggers: metadata.reactionTriggers,
+      tools: metadata.tools,
     };
   }
 
@@ -703,6 +706,7 @@ async function readJsonIfExists(filePath: string): Promise<AgentMetadata | null>
       cron: asOptionalCronJobs(parsed.cron, 'cron'),
       limits: parsed.limits as AgentMetadata['limits'],
       reactionTriggers: Array.isArray(parsed.reactionTriggers) ? (parsed.reactionTriggers as string[]) : undefined,
+      tools: Array.isArray(parsed.tools) ? (parsed.tools as string[]) : undefined,
     };
 
     return metadata;

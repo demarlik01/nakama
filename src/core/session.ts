@@ -30,6 +30,13 @@ import {
   supportsPiSession,
 } from './llm/provider.js';
 import { createLlmProvider } from './llm/factory.js';
+import type { ToolDefinition } from '@mariozechner/pi-coding-agent';
+import {
+  createWebSearchTool,
+  createWebFetchTool,
+  createMemoryReadTool,
+  createMemoryWriteTool,
+} from '../tools/index.js';
 
 interface QueuedMessage {
   message: string;
@@ -433,6 +440,46 @@ export class SessionManager {
     runtime.state.queueDepth = runtime.queue.length;
   }
 
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  private buildCustomTools(agent: AgentDefinition): ToolDefinition<any>[] {
+    const toolNames = agent.tools ?? ['coding'];
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const customTools: ToolDefinition<any>[] = [];
+
+    for (const toolName of toolNames) {
+      switch (toolName) {
+        case 'coding':
+          // Built-in tools are already passed via `tools: codingTools`
+          break;
+        case 'web_search': {
+          const braveApiKey = this.config.tools?.webSearch?.braveApiKey;
+          if (braveApiKey) {
+            customTools.push(createWebSearchTool({ braveApiKey }));
+          } else {
+            this.logger.warn('web_search tool requested but tools.webSearch.braveApiKey not configured', {
+              agentId: agent.id,
+            });
+          }
+          break;
+        }
+        case 'web_fetch':
+          customTools.push(createWebFetchTool());
+          break;
+        case 'memory':
+          customTools.push(createMemoryReadTool(agent.workspacePath));
+          customTools.push(createMemoryWriteTool(agent.workspacePath));
+          break;
+        default:
+          this.logger.warn('Unknown tool name in agent config', {
+            agentId: agent.id,
+            toolName,
+          });
+      }
+    }
+
+    return customTools;
+  }
+
   private async getOrCreatePiSession(
     agent: AgentDefinition,
     runtime: SessionRuntime,
@@ -469,10 +516,13 @@ export class SessionManager {
       }
     }
 
+    const customTools = this.buildCustomTools(agent);
+
     const { session } = await createAgentSession({
       cwd: agent.workspacePath,
       model: resolvedModel.model,
       tools: codingTools,
+      customTools,
       sessionManager,
     });
 
