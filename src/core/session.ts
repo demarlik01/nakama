@@ -193,6 +193,130 @@ export class SessionManager {
     });
   }
 
+  /**
+   * Get the current message count for an agent's session.
+   * Used by HeartbeatRunner to track pre-heartbeat state for pruning.
+   */
+  getMessageCount(agentId: string): number {
+    const runtime = this.sessions.get(agentId);
+    return (runtime?.piSession?.state.messages as unknown[] | undefined)?.length ?? 0;
+  }
+
+  /**
+   * Remove messages from an agent's session starting at the given index.
+   * Used to prune HEARTBEAT_OK turns from transcript to save tokens.
+   * NOTE: This only prunes in-memory state. The .jsonl file retains entries
+   * but they won't be sent to the LLM in subsequent turns.
+   */
+  pruneMessagesFrom(agentId: string, fromIndex: number): number {
+    const runtime = this.sessions.get(agentId);
+    if (!runtime?.piSession) return 0;
+
+    const messages = runtime.piSession.state.messages as unknown[];
+    const toRemove = messages.length - fromIndex;
+    if (toRemove > 0) {
+      messages.splice(fromIndex);
+    }
+    return Math.max(0, toRemove);
+  }
+
+  /**
+   * Prune only the last heartbeat turn from transcript.
+   * Walks backward from the end to find and remove the heartbeat user prompt
+   * and assistant HEARTBEAT_OK response, without touching other messages.
+   */
+  pruneHeartbeatTurn(agentId: string, currentLength: number): number {
+    const runtime = this.sessions.get(agentId);
+    if (!runtime?.piSession) return 0;
+
+    const messages = runtime.piSession.state.messages as Array<{ role?: string; content?: unknown }>;
+    if (messages.length === 0) return 0;
+
+    // Walk backward to find the heartbeat assistant response
+    let endIdx = messages.length;
+    let removed = 0;
+
+    // Remove trailing assistant message(s) that are HEARTBEAT_OK
+    while (endIdx > 0) {
+      const msg = messages[endIdx - 1];
+      if (msg?.role === 'assistant') {
+        const text = typeof msg.content === 'string' ? msg.content : '';
+        if (text.trim().startsWith('HEARTBEAT_OK')) {
+          endIdx--;
+          removed++;
+          continue;
+        }
+      }
+      break;
+    }
+
+    // Remove the user message that triggered the heartbeat (immediately before)
+    if (endIdx > 0 && removed > 0) {
+      const msg = messages[endIdx - 1];
+      if (msg?.role === 'user') {
+        endIdx--;
+        removed++;
+      }
+    }
+
+    if (removed > 0) {
+      messages.splice(endIdx, removed);
+    }
+
+    return removed;
+  }
+
+  /**
+   * Run an isolated agent turn (for cron jobs with sessionTarget: "isolated").
+   * Creates a temporary session, runs the message, and returns the response.
+   * The session is NOT persisted as the main session.
+   */
+  async runIsolatedTurn(
+    agentId: string,
+    message: string,
+    options?: { model?: string },
+  ): Promise<string> {
+    const agent = this.registry.getById(agentId);
+    if (agent === undefined) {
+      throw new Error(`Agent not found: ${agentId}`);
+    }
+
+    const systemPrompt = await buildSystemPrompt(agent);
+    const modelSpec = options?.model ?? agent.model ?? this.config.llm.defaultModel;
+    const resolvedModel = this.llmProvider.resolveModel(modelSpec);
+
+    // Use in-memory session for true isolation — no file persistence,
+    // no contamination of or from the main session history.
+    const sessionManager = PiSessionManager.inMemory();
+    const customTools = this.buildCustomTools(agent);
+
+    const { session } = await createAgentSession({
+      cwd: agent.workspacePath,
+      model: resolvedModel.model,
+      tools: codingTools,
+      customTools,
+      sessionManager,
+    });
+
+    session.agent.setSystemPrompt(systemPrompt);
+    await session.prompt(message);
+
+    // Record usage
+    this.recordUsageFromMessages(agent, {
+      state: { agentId, status: 'idle', queueDepth: 0, lastActivityAt: new Date() },
+      queue: [],
+      processing: false,
+    }, session.state.messages as unknown as readonly unknown[]);
+
+    const messages = session.state.messages;
+    const lastMessage = messages[messages.length - 1];
+    if (lastMessage === undefined || lastMessage.role !== 'assistant') {
+      return '(No response from agent)';
+    }
+
+    return extractTextFromMessage(lastMessage);
+  }
+
   getActiveSession(agentId: string): SessionState | undefined {
     return this.sessions.get(agentId)?.state;
   }

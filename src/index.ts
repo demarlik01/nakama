@@ -6,8 +6,8 @@ import { loadConfig } from './config.js';
 import { AgentRegistry } from './core/registry.js';
 import { MessageRouter } from './core/router.js';
 import { SessionManager } from './core/session.js';
-import { CronScheduler } from './core/cron.js';
-import { HeartbeatScheduler } from './core/heartbeat.js';
+import { CronService } from './core/cron.js';
+import { HeartbeatRunner } from './core/heartbeat.js';
 import { SlackGateway } from './slack/app.js';
 import { createLogger } from './utils/logger.js';
 import { UsageTracker } from './core/usage.js';
@@ -60,19 +60,25 @@ async function bootstrap(): Promise<void> {
     await slackGateway.postMessage(channelId, text, undefined, agent);
   };
 
-  const heartbeatScheduler = new HeartbeatScheduler(
+  const heartbeatRunner = new HeartbeatRunner(
     sessionManager,
     postToSlack,
     logger.child('heartbeat'),
   );
-  const cronScheduler = new CronScheduler(
-    sessionManager,
-    postToSlack,
-    logger.child('cron'),
-  );
 
-  // Wire SSE manager to session manager
+  const cronStorePath = path.resolve(workspacesRoot, '..', 'cron-store.json');
+  const cronService = new CronService({
+    storePath: cronStorePath,
+    sessionManager,
+    registry,
+    heartbeatRunner,
+    postToSlack,
+    logger: logger.child('cron'),
+  });
+
+  // Wire SSE manager and cron service
   sessionManager.setSSEManager(apiServer.getSSEManager());
+  apiServer.setCronService(cronService);
 
   // Wire error notifier
   const notifier = new Notifier(config, logger.child('notifier'));
@@ -84,24 +90,27 @@ async function bootstrap(): Promise<void> {
   await apiServer.start();
   await slackGateway.start();
 
+  // Start cron service
+  await cronService.start();
+
   // Initialize schedulers for all existing agents
   for (const agent of registry.getAll()) {
-    heartbeatScheduler.register(agent);
-    cronScheduler.register(agent);
+    heartbeatRunner.register(agent);
+    void cronService.register(agent);
   }
 
   // Re-register schedulers on agent changes
   registry.on('agent:added', (agent) => {
-    heartbeatScheduler.register(agent);
-    cronScheduler.register(agent);
+    heartbeatRunner.register(agent);
+    void cronService.register(agent);
   });
   registry.on('agent:updated', (agent) => {
-    heartbeatScheduler.register(agent);
-    cronScheduler.register(agent);
+    heartbeatRunner.register(agent);
+    void cronService.register(agent);
   });
   registry.on('agent:removed', (agentId) => {
-    heartbeatScheduler.unregister(agentId);
-    cronScheduler.unregisterAgent(agentId);
+    heartbeatRunner.unregister(agentId);
+    void cronService.unregister(agentId);
   });
 
   logger.info('Agent for Work started', {
@@ -171,8 +180,8 @@ async function bootstrap(): Promise<void> {
     }
 
     // Stop schedulers
-    heartbeatScheduler.stopAll();
-    cronScheduler.stopAll();
+    heartbeatRunner.stopAll();
+    cronService.stop();
     sessionManager.stop();
     usageTracker.close();
 

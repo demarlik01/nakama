@@ -12,8 +12,10 @@ import type { SessionManager } from '../core/session.js';
 import type { UsageTracker } from '../core/usage.js';
 import { createLogger, type Logger } from '../utils/logger.js';
 import { createAgentsRouter } from './routes/agents.js';
+import { createCronRouter } from './routes/cron.js';
 import { SSEManager } from './sse.js';
 import { createBasicAuthMiddleware } from './middleware/auth.js';
+import type { CronService } from '../core/cron.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -21,6 +23,7 @@ export interface ApiServerDependencies {
   registry: AgentRegistry;
   sessionManager: SessionManager;
   usageTracker?: UsageTracker;
+  cronService?: CronService;
   slackConnected?: () => boolean;
   logger?: Logger;
 }
@@ -30,6 +33,7 @@ export class ApiServer {
   private server?: Server;
   private readonly logger: Logger;
   private readonly sseManager: SSEManager;
+  private cronRouter?: ReturnType<typeof createCronRouter>;
 
   constructor(
     private readonly config: AppConfig,
@@ -87,6 +91,10 @@ export class ApiServer {
 
   getSSEManager(): SSEManager {
     return this.sseManager;
+  }
+
+  setCronService(cronService: CronService): void {
+    this.deps.cronService = cronService;
   }
 
   getApp(): Express {
@@ -173,6 +181,21 @@ export class ApiServer {
         logger: this.logger.child('agents-routes'),
       }),
     );
+
+    // --- Cron endpoints (lazy: cronService may be set after construction) ---
+    this.app.use('/api/cron', (req, res, next) => {
+      if (!this.deps.cronService) {
+        res.status(503).json({ error: 'Cron service not initialized' });
+        return;
+      }
+      if (!this.cronRouter) {
+        this.cronRouter = createCronRouter({
+          cronService: this.deps.cronService,
+          logger: this.logger.child('cron-routes'),
+        });
+      }
+      this.cronRouter(req, res, next);
+    });
 
     // --- AGENTS.md read endpoint ---
     this.app.get('/api/agents/:id/agents-md', async (req, res) => {

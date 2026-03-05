@@ -661,9 +661,12 @@ function buildDefaultAgentsMd(params: CreateAgentParams): string {
   ].join('\n');
 }
 
+const HEARTBEAT_MD_FILE = 'HEARTBEAT.md';
+
 async function initializeMemoryFiles(workspacePath: string): Promise<void> {
   const memoryPath = path.join(workspacePath, MEMORY_MD_FILE);
   const memoryDir = path.join(workspacePath, MEMORY_DIR);
+  const heartbeatPath = path.join(workspacePath, HEARTBEAT_MD_FILE);
   const today = formatDate(new Date());
   const todayMemoryPath = path.join(memoryDir, `${today}.md`);
 
@@ -671,6 +674,7 @@ async function initializeMemoryFiles(workspacePath: string): Promise<void> {
   await Promise.all([
     writeFile(memoryPath, normalizeFile(buildMemoryIndexContent()), 'utf8'),
     writeFile(todayMemoryPath, normalizeFile(buildDailyMemoryContent(today)), 'utf8'),
+    writeFile(heartbeatPath, normalizeFile(buildHeartbeatMdContent()), 'utf8'),
   ]);
 }
 
@@ -696,6 +700,21 @@ function buildMemoryIndexContent(): string {
 
 function buildDailyMemoryContent(date: string): string {
   return [`# ${date}`, '', '## Notes', '-'].join('\n');
+}
+
+function buildHeartbeatMdContent(): string {
+  return [
+    '# HEARTBEAT',
+    '',
+    'This file controls what the agent checks during heartbeat polls.',
+    'If this file is empty, heartbeats will be skipped.',
+    '',
+    '## Checks',
+    '- Review workspace and pending tasks',
+    '- Check memory files for any follow-ups',
+    '',
+    'If nothing needs attention, reply HEARTBEAT_OK.',
+  ].join('\n');
 }
 
 function buildSkillsReadmeContent(): string {
@@ -819,10 +838,34 @@ function asOptionalHeartbeat(value: unknown, label: string): HeartbeatConfig | u
   if (!isObject(value)) {
     throw new Error(`${label} must be an object`);
   }
+
+  // Support legacy format: { enabled, intervalMin, quietHours }
+  if ('intervalMin' in value) {
+    const quietHours = Array.isArray(value.quietHours) ? value.quietHours as number[] : undefined;
+    return {
+      enabled: typeof value.enabled === 'boolean' ? value.enabled : false,
+      every: typeof value.intervalMin === 'number' ? `${value.intervalMin}m` : undefined,
+      activeHours: quietHours && quietHours.length === 2 ? {
+        start: String(quietHours[1]).padStart(2, '0') + ':00',
+        end: String(quietHours[0]).padStart(2, '0') + ':00',
+      } : undefined,
+    };
+  }
+
+  // New format
+  const activeHours = isObject(value.activeHours)
+    ? {
+        start: asOptionalString(value.activeHours.start, `${label}.activeHours.start`),
+        end: asOptionalString(value.activeHours.end, `${label}.activeHours.end`),
+        timezone: asOptionalString(value.activeHours.timezone, `${label}.activeHours.timezone`),
+      }
+    : undefined;
+
   return {
-    enabled: asBoolean(value.enabled, `${label}.enabled`),
-    intervalMin: asNumber(value.intervalMin, `${label}.intervalMin`),
-    quietHours: asNumberTuple(value.quietHours, `${label}.quietHours`),
+    enabled: typeof value.enabled === 'boolean' ? value.enabled : undefined,
+    every: asOptionalString(value.every, `${label}.every`),
+    prompt: asOptionalString(value.prompt, `${label}.prompt`),
+    activeHours,
   };
 }
 
@@ -837,11 +880,22 @@ function asOptionalCronJobs(value: unknown, label: string): CronJobConfig[] | un
     if (!isObject(item)) {
       throw new Error(`${label}[${index}] must be an object`);
     }
+    // Support both old "prompt" field and new "message" field
+    const message =
+      asOptionalString(item.message, `${label}[${index}].message`) ??
+      asOptionalString(item.prompt, `${label}[${index}].prompt`);
+    if (message === undefined) {
+      throw new Error(`${label}[${index}].message is required`);
+    }
     return {
       name: asString(item.name, `${label}[${index}].name`),
       schedule: asString(item.schedule, `${label}[${index}].schedule`),
-      prompt: asString(item.prompt, `${label}[${index}].prompt`),
-      channel: asString(item.channel, `${label}[${index}].channel`),
+      message,
+      channel: asOptionalString(item.channel, `${label}[${index}].channel`),
+      sessionTarget: item.sessionTarget === 'isolated' ? 'isolated' as const : 'main' as const,
+      model: asOptionalString(item.model, `${label}[${index}].model`),
+      thinking: asOptionalString(item.thinking, `${label}[${index}].thinking`),
+      deleteAfterRun: typeof item.deleteAfterRun === 'boolean' ? item.deleteAfterRun : undefined,
     };
   });
 }
@@ -851,16 +905,6 @@ function asNumber(value: unknown, label: string): number {
     throw new Error(`${label} must be a number`);
   }
   return value;
-}
-
-function asNumberTuple(value: unknown, label: string): [number, number] {
-  if (!Array.isArray(value) || value.length !== 2) {
-    throw new Error(`${label} must be an array of two numbers`);
-  }
-  if (typeof value[0] !== 'number' || typeof value[1] !== 'number') {
-    throw new Error(`${label} elements must be numbers`);
-  }
-  return [value[0], value[1]];
 }
 
 function asStringArray(value: unknown, label: string): string[] {

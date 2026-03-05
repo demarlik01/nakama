@@ -1,116 +1,222 @@
-import { access } from 'node:fs/promises';
+import { readFile } from 'node:fs/promises';
 import path from 'node:path';
 
-import type { AgentDefinition } from '../types.js';
+import type { AgentDefinition, HeartbeatConfig } from '../types.js';
 import type { Logger } from '../utils/logger.js';
 import { createLogger } from '../utils/logger.js';
+import { parseDurationMs } from '../utils/duration.js';
 import { getChannelIds } from './registry.js';
 import type { SessionManager } from './session.js';
 
 const HEARTBEAT_MD = 'HEARTBEAT.md';
+const DEFAULT_EVERY_MS = 30 * 60_000; // 30 minutes
+const HEARTBEAT_OK = 'HEARTBEAT_OK';
+const HEARTBEAT_ACK_MAX_CHARS = 300;
 
 const DEFAULT_HEARTBEAT_PROMPT =
-  'Read HEARTBEAT.md and follow it. If nothing needs attention, reply HEARTBEAT_OK.';
+  'Read HEARTBEAT.md if it exists (workspace context). Follow it strictly. ' +
+  'Do not infer or repeat old tasks from prior chats. ' +
+  'If nothing needs attention, reply HEARTBEAT_OK.';
 const FALLBACK_HEARTBEAT_PROMPT =
-  'This is a heartbeat check. Review your workspace and pending tasks. If nothing needs attention, reply HEARTBEAT_OK.';
-const HEARTBEAT_OK = 'HEARTBEAT_OK';
+  'This is a heartbeat check. Review your workspace and pending tasks. ' +
+  'If nothing needs attention, reply HEARTBEAT_OK.';
 
-export class HeartbeatScheduler {
-  private readonly timers = new Map<string, NodeJS.Timeout>();
+interface AgentSchedule {
+  agentId: string;
+  agent: AgentDefinition;
+  intervalMs: number;
+  nextRunAtMs: number;
+}
+
+/**
+ * HeartbeatRunner — setTimeout-based periodic heartbeat for agents.
+ *
+ * Key design:
+ * - Uses setTimeout (not setInterval) to avoid drift
+ * - Supports per-agent heartbeat config (interval, prompt, active hours)
+ * - HEARTBEAT.md gate: skips if file is empty
+ * - HEARTBEAT_OK detection → transcript pruning (saves tokens)
+ * - requestHeartbeatNow() for external triggers (e.g. cron service)
+ */
+export class HeartbeatRunner {
+  private readonly schedules = new Map<string, AgentSchedule>();
+  private timer: NodeJS.Timeout | null = null;
+  private running = false;
 
   constructor(
     private readonly sessionManager: SessionManager,
     private readonly postToSlack: (channelId: string, text: string, agentId: string) => Promise<void>,
-    private readonly logger: Logger = createLogger('HeartbeatScheduler'),
+    private readonly logger: Logger = createLogger('HeartbeatRunner'),
   ) {}
 
   /**
    * Register an agent for heartbeat polling.
-   * Clears any existing timer for this agent before setting a new one.
+   * Clears any existing schedule for this agent before setting a new one.
    */
   register(agent: AgentDefinition): void {
     this.unregister(agent.id);
 
-    if (!agent.enabled) {
-      return;
-    }
+    if (!agent.enabled) return;
 
     const hb = agent.heartbeat;
-    if (hb === undefined || !hb.enabled) {
-      return;
-    }
+    if (hb === undefined || !hb.enabled) return;
 
-    const intervalMs = hb.intervalMin * 60_000;
+    const intervalMs = resolveIntervalMs(hb);
 
-    const timer = setInterval(() => {
-      void this.tick(agent).catch((err: unknown) => {
-        this.logger.error('Heartbeat tick failed', {
-          agentId: agent.id,
-          error: err instanceof Error ? err.message : String(err),
-        });
-      });
-    }, intervalMs);
+    const schedule: AgentSchedule = {
+      agentId: agent.id,
+      agent,
+      intervalMs,
+      nextRunAtMs: Date.now() + intervalMs,
+    };
 
-    // Don't block process exit
-    timer.unref();
-
-    this.timers.set(agent.id, timer);
+    this.schedules.set(agent.id, schedule);
+    this.armTimer();
 
     this.logger.info('Heartbeat registered', {
       agentId: agent.id,
-      intervalMin: hb.intervalMin,
-      quietHours: hb.quietHours,
+      intervalMs,
+      activeHours: hb.activeHours,
     });
   }
 
-  /** Unregister an agent's heartbeat timer. */
+  /** Unregister an agent's heartbeat schedule. */
   unregister(agentId: string): void {
-    const existing = this.timers.get(agentId);
-    if (existing !== undefined) {
-      clearInterval(existing);
-      this.timers.delete(agentId);
+    if (this.schedules.delete(agentId)) {
+      this.armTimer();
     }
   }
 
   /** Stop all heartbeat timers. */
   stopAll(): void {
-    for (const [, timer] of this.timers) {
-      clearInterval(timer);
+    if (this.timer !== null) {
+      clearTimeout(this.timer);
+      this.timer = null;
     }
-    this.timers.clear();
+    this.schedules.clear();
     this.logger.info('All heartbeat timers stopped');
   }
 
-  /** Single heartbeat tick for an agent. */
-  private async tick(agent: AgentDefinition): Promise<void> {
-    if (!agent.enabled) {
+  /**
+   * Request an immediate heartbeat for an agent.
+   * Used by CronService to wake the main session.
+   */
+  requestHeartbeatNow(agentId: string): void {
+    const schedule = this.schedules.get(agentId);
+    if (schedule === undefined) {
+      this.logger.warn('requestHeartbeatNow: agent not registered', { agentId });
       return;
+    }
+
+    // Set next run to now so the timer fires immediately
+    schedule.nextRunAtMs = Date.now();
+    this.armTimer();
+  }
+
+  /**
+   * Run a single heartbeat for an agent (public for testing and cron integration).
+   */
+  async runOnce(agent: AgentDefinition): Promise<HeartbeatResult> {
+    return this.tick(agent);
+  }
+
+  // --- Private ---
+
+  /** Arm the timer for the next due agent. */
+  private armTimer(): void {
+    if (this.timer !== null) {
+      clearTimeout(this.timer);
+      this.timer = null;
+    }
+
+    if (this.schedules.size === 0) return;
+
+    // Find the earliest next run
+    let earliest: AgentSchedule | undefined;
+    for (const schedule of this.schedules.values()) {
+      if (earliest === undefined || schedule.nextRunAtMs < earliest.nextRunAtMs) {
+        earliest = schedule;
+      }
+    }
+
+    if (earliest === undefined) return;
+
+    const delay = Math.max(0, earliest.nextRunAtMs - Date.now());
+    this.timer = setTimeout(() => {
+      void this.onTimer();
+    }, delay);
+    this.timer.unref();
+  }
+
+  /** Timer callback — find and run all due heartbeats. */
+  private async onTimer(): Promise<void> {
+    if (this.running) return;
+    this.running = true;
+
+    try {
+      const now = Date.now();
+      const due: AgentSchedule[] = [];
+
+      for (const schedule of this.schedules.values()) {
+        if (schedule.nextRunAtMs <= now) {
+          due.push(schedule);
+        }
+      }
+
+      for (const schedule of due) {
+        try {
+          await this.tick(schedule.agent);
+        } catch (err: unknown) {
+          this.logger.error('Heartbeat tick failed', {
+            agentId: schedule.agentId,
+            error: err instanceof Error ? err.message : String(err),
+          });
+        }
+
+        // Advance schedule
+        schedule.nextRunAtMs = Date.now() + schedule.intervalMs;
+      }
+    } finally {
+      this.running = false;
+      this.armTimer();
+    }
+  }
+
+  /** Single heartbeat tick for an agent. */
+  private async tick(agent: AgentDefinition): Promise<HeartbeatResult> {
+    if (!agent.enabled) {
+      return { status: 'skipped', reason: 'agent-disabled' };
     }
 
     const hb = agent.heartbeat;
     if (hb === undefined || !hb.enabled) {
-      return;
+      return { status: 'skipped', reason: 'heartbeat-disabled' };
     }
 
-    // Check quiet hours
-    if (this.isQuietHour(hb.quietHours)) {
-      this.logger.debug('Skipping heartbeat (quiet hours)', { agentId: agent.id });
-      return;
+    // Check active hours
+    if (!isWithinActiveHours(hb.activeHours)) {
+      this.logger.debug('Skipping heartbeat (outside active hours)', { agentId: agent.id });
+      return { status: 'skipped', reason: 'quiet-hours' };
+    }
+
+    // Check HEARTBEAT.md content gate
+    const heartbeatContent = await readHeartbeatMd(agent.workspacePath);
+    if (isEffectivelyEmpty(heartbeatContent)) {
+      this.logger.debug('Skipping heartbeat (HEARTBEAT.md empty or missing)', { agentId: agent.id });
+      return { status: 'skipped', reason: 'empty-heartbeat-file' };
     }
 
     // Build prompt
-    const prompt = await this.buildPrompt(agent);
+    const prompt = resolvePrompt(hb, heartbeatContent !== null);
 
-    this.logger.info('Sending heartbeat', { agentId: agent.id });
-
-    // Determine a channel to post responses to (first configured channel)
+    // Get first configured channel
     const channel = getChannelIds(agent)[0];
     if (channel === undefined) {
-      this.logger.warn('No Slack channel configured for heartbeat response', {
-        agentId: agent.id,
-      });
-      return;
+      this.logger.warn('No channel configured for heartbeat response', { agentId: agent.id });
+      return { status: 'skipped', reason: 'no-channel' };
     }
+
+    this.logger.info('Sending heartbeat', { agentId: agent.id });
 
     // Send prompt to agent session
     const response = await this.sessionManager.handleMessage(agent.id, prompt, {
@@ -118,44 +224,141 @@ export class HeartbeatScheduler {
       slackUserId: 'system:heartbeat',
     });
 
-    // If the response contains HEARTBEAT_OK, stay silent
-    if (response.trim() === HEARTBEAT_OK || response.includes(HEARTBEAT_OK)) {
+    // Check for HEARTBEAT_OK
+    if (isHeartbeatOk(response)) {
       this.logger.debug('Heartbeat OK (silent)', { agentId: agent.id });
-      return;
+
+      // Prune the heartbeat turn from transcript to save tokens.
+      // We capture message count AFTER handleMessage returns, then remove
+      // only the last heartbeat turn (user prompt + assistant HEARTBEAT_OK).
+      const postMessageCount = this.sessionManager.getMessageCount(agent.id);
+      const pruned = this.sessionManager.pruneHeartbeatTurn(agent.id, postMessageCount);
+      if (pruned > 0) {
+        this.logger.debug('Pruned heartbeat transcript', {
+          agentId: agent.id,
+          messagesRemoved: pruned,
+        });
+      }
+
+      return { status: 'ok-token', pruned };
     }
 
-    // Post non-trivial response to Slack
+    // Post non-trivial response to channel
     await this.postToSlack(channel, response, agent.id);
     this.logger.info('Heartbeat response posted', { agentId: agent.id, channel });
-  }
 
-  /** Check if the current hour falls within quiet hours [start, end). */
-  private isQuietHour(quietHours: [number, number]): boolean {
-    const [start, end] = quietHours;
-    const hour = new Date().getHours();
-
-    if (start <= end) {
-      // e.g. [8, 17] — quiet during 8..16
-      return hour >= start && hour < end;
-    }
-    // e.g. [23, 8] — quiet during 23..7
-    return hour >= start || hour < end;
-  }
-
-  /** Build the heartbeat prompt, checking for HEARTBEAT.md existence. */
-  private async buildPrompt(agent: AgentDefinition): Promise<string> {
-    const heartbeatMdPath = path.join(agent.workspacePath, HEARTBEAT_MD);
-    const hasHeartbeatMd = await fileExists(heartbeatMdPath);
-
-    return hasHeartbeatMd ? DEFAULT_HEARTBEAT_PROMPT : FALLBACK_HEARTBEAT_PROMPT;
+    return { status: 'delivered', response };
   }
 }
 
-async function fileExists(filePath: string): Promise<boolean> {
-  try {
-    await access(filePath);
-    return true;
-  } catch {
-    return false;
+// --- Result type ---
+
+export type HeartbeatResult =
+  | { status: 'skipped'; reason: string }
+  | { status: 'ok-token'; pruned: number }
+  | { status: 'delivered'; response: string };
+
+// --- Helper functions ---
+
+function resolveIntervalMs(hb: HeartbeatConfig): number {
+  if (hb.every !== undefined) {
+    return parseDurationMs(hb.every, DEFAULT_EVERY_MS);
   }
+  return DEFAULT_EVERY_MS;
+}
+
+function resolvePrompt(hb: HeartbeatConfig, hasHeartbeatMd: boolean): string {
+  if (hb.prompt !== undefined) return hb.prompt;
+  return hasHeartbeatMd ? DEFAULT_HEARTBEAT_PROMPT : FALLBACK_HEARTBEAT_PROMPT;
+}
+
+/**
+ * Check if the response is a HEARTBEAT_OK acknowledgment.
+ * Allows up to HEARTBEAT_ACK_MAX_CHARS after the token.
+ */
+function isHeartbeatOk(response: string): boolean {
+  const trimmed = response.trim();
+  if (trimmed === HEARTBEAT_OK) return true;
+  if (trimmed.startsWith(HEARTBEAT_OK) && trimmed.length <= HEARTBEAT_OK.length + HEARTBEAT_ACK_MAX_CHARS) {
+    return true;
+  }
+  return false;
+}
+
+/**
+ * Check if HEARTBEAT.md content is effectively empty.
+ * Returns true if null, empty, or only whitespace/comment lines.
+ */
+function isEffectivelyEmpty(content: string | null): boolean {
+  if (content === null) return true;
+  const lines = content.split('\n');
+  for (const line of lines) {
+    const trimmed = line.trim();
+    if (trimmed.length > 0 && !trimmed.startsWith('#') && trimmed !== '---' && trimmed !== '-') {
+      return false;
+    }
+  }
+  return true;
+}
+
+/**
+ * Read HEARTBEAT.md from agent workspace. Returns null if not found.
+ */
+async function readHeartbeatMd(workspacePath: string): Promise<string | null> {
+  try {
+    return await readFile(path.join(workspacePath, HEARTBEAT_MD), 'utf8');
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Check if the current time is within the agent's active hours.
+ * If no active hours configured, always returns true.
+ */
+function isWithinActiveHours(activeHours?: HeartbeatConfig['activeHours']): boolean {
+  if (activeHours === undefined) return true;
+
+  const { start, end, timezone } = activeHours;
+  if (start === undefined || end === undefined) return true;
+
+  // Resolve timezone
+  const tz = timezone ?? Intl.DateTimeFormat().resolvedOptions().timeZone;
+
+  // Get current time in the target timezone
+  const now = new Date();
+  const formatter = new Intl.DateTimeFormat('en-US', {
+    timeZone: tz,
+    hour: 'numeric',
+    minute: 'numeric',
+    hour12: false,
+  });
+
+  const parts = formatter.formatToParts(now);
+  const hourPart = parts.find((p) => p.type === 'hour');
+  const minutePart = parts.find((p) => p.type === 'minute');
+  if (hourPart === undefined || minutePart === undefined) return true;
+
+  const currentMinutes = parseInt(hourPart.value, 10) * 60 + parseInt(minutePart.value, 10);
+
+  // Parse start/end to minutes
+  const startMinutes = parseTimeToMinutes(start);
+  const endMinutes = parseTimeToMinutes(end);
+  if (startMinutes === undefined || endMinutes === undefined) return true;
+
+  if (startMinutes <= endMinutes) {
+    // Normal range: e.g. 08:00 - 23:00
+    return currentMinutes >= startMinutes && currentMinutes < endMinutes;
+  }
+  // Overnight range: e.g. 22:00 - 06:00
+  return currentMinutes >= startMinutes || currentMinutes < endMinutes;
+}
+
+function parseTimeToMinutes(time: string): number | undefined {
+  const match = time.match(/^(\d{1,2}):(\d{2})$/);
+  if (!match) return undefined;
+  const hours = parseInt(match[1]!, 10);
+  const minutes = parseInt(match[2]!, 10);
+  if (hours < 0 || hours > 23 || minutes < 0 || minutes > 59) return undefined;
+  return hours * 60 + minutes;
 }

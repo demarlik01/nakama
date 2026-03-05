@@ -7,16 +7,60 @@ export interface AgentSchedule {
 }
 
 export interface HeartbeatConfig {
-  enabled: boolean;
-  intervalMin: number;
-  quietHours: [number, number];
+  every?: string;        // duration ("30m", "1h") default "30m"
+  prompt?: string;       // custom prompt
+  activeHours?: {
+    start?: string;      // "08:00"
+    end?: string;        // "23:00"
+    timezone?: string;   // IANA timezone
+  };
+  enabled?: boolean;     // default false
 }
 
 export interface CronJobConfig {
   name: string;
   schedule: string;
-  prompt: string;
-  channel: string;
+  message: string;
+  channel?: string;
+  sessionTarget?: 'main' | 'isolated';
+  model?: string;
+  thinking?: string;
+  deleteAfterRun?: boolean;
+}
+
+// --- Cron Store Types ---
+
+export type CronSchedule =
+  | { kind: 'at'; at: string }
+  | { kind: 'every'; everyMs: number }
+  | { kind: 'cron'; expr: string; tz?: string };
+
+export interface CronJob {
+  id: string;
+  agentId: string;
+  schedule: CronSchedule;
+  sessionTarget: 'main' | 'isolated';
+  payload: {
+    message: string;
+    model?: string;
+    thinking?: string;
+  };
+  enabled: boolean;
+  deleteAfterRun: boolean;
+  source: 'config' | 'api';
+  deliverTo?: string;
+  state: {
+    nextRunAtMs?: number;
+    lastRunAtMs?: number;
+    lastRunStatus?: 'ok' | 'error' | 'skipped';
+    lastError?: string;
+    consecutiveErrors: number;
+  };
+}
+
+export interface CronStore {
+  jobs: CronJob[];
+  version: number;
 }
 
 export interface LimitsConfig {
