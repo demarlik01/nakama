@@ -49,6 +49,15 @@ interface SessionRuntime {
 }
 
 const SESSION_CLEANUP_INTERVAL_MS = 6 * 60 * 60 * 1000;
+const LOG_REDACTED = '[REDACTED]';
+const SECRET_VALUE_PATTERNS = [
+  /\bxox[baprs]-[A-Za-z0-9-]+\b/g,
+  /\bxapp-[A-Za-z0-9-]+\b/g,
+  /\bsk-ant-[A-Za-z0-9_-]{10,}\b/g,
+  /\bsk-[A-Za-z0-9_-]{10,}\b/g,
+  /\bghp_[A-Za-z0-9]{20,}\b/g,
+  /\bgithub_pat_[A-Za-z0-9_]{20,}\b/g,
+];
 
 export class SessionManager {
   private readonly sessions = new Map<string, SessionRuntime>();
@@ -155,6 +164,22 @@ export class SessionManager {
       runtime.queue.push({ message, context, resolve, reject });
       runtime.state.queueDepth = runtime.queue.length;
       runtime.state.lastActivityAt = new Date();
+      this.logger.info('Queued message for Pi SDK agent', {
+        agentId,
+        channelId: context.slackChannelId,
+        slackUserId: context.slackUserId,
+        hasThread: context.slackThreadTs !== undefined,
+        queueDepth: runtime.queue.length,
+        messageLength: message.length,
+      });
+      this.logger.debug('Queued message for Pi SDK agent (payload)', {
+        agentId,
+        channelId: context.slackChannelId,
+        slackUserId: context.slackUserId,
+        hasThread: context.slackThreadTs !== undefined,
+        queueDepth: runtime.queue.length,
+        inboundMessage: redactSensitiveLogText(message),
+      });
       void this.processQueue(agent, runtime);
     });
   }
@@ -417,6 +442,11 @@ export class SessionManager {
     }
 
     const systemPrompt = await buildSystemPrompt(agent);
+    this.logger.debug('System prompt prepared for Pi SDK session', {
+      agentId: agent.id,
+      promptChars: systemPrompt.length,
+      systemPrompt: redactSensitiveLogText(systemPrompt),
+    });
     const modelSpec = agent.model ?? this.config.llm.defaultModel;
     const resolvedModel = this.llmProvider.resolveModel(modelSpec);
     const sessionDir = getAgentSessionDir(agent);
@@ -505,13 +535,6 @@ export class SessionManager {
   ): Promise<string> {
     const session = await this.getOrCreatePiSession(agent, runtime);
 
-    this.logger.info('Sending message to Pi SDK agent', {
-      agentId: agent.id,
-      channelId: context.slackChannelId,
-      hasThread: context.slackThreadTs !== undefined,
-      messageLength: message.length,
-    });
-
     await session.prompt(message);
 
     // Record usage from all new assistant messages
@@ -525,7 +548,9 @@ export class SessionManager {
     const lastMessage = messages[messages.length - 1];
 
     if (lastMessage === undefined || lastMessage.role !== 'assistant') {
-      return '(No response from agent)';
+      const fallback = '(No response from agent)';
+      this.logAgentResponse(agent.id, context, fallback);
+      return fallback;
     }
 
     const assistantMsg = lastMessage as Message & { role: 'assistant' };
@@ -537,7 +562,28 @@ export class SessionManager {
       }
     }
 
-    return extractTextFromMessage(lastMessage);
+    const responseText = extractTextFromMessage(lastMessage);
+    this.logAgentResponse(agent.id, context, responseText);
+    return responseText;
+  }
+
+  private logAgentResponse(
+    agentId: string,
+    context: SessionMessageContext,
+    responseText: string,
+  ): void {
+    this.logger.info('Received response from Pi SDK agent', {
+      agentId,
+      channelId: context.slackChannelId,
+      hasThread: context.slackThreadTs !== undefined,
+      responseLength: responseText.length,
+    });
+    this.logger.debug('Received response from Pi SDK agent (payload)', {
+      agentId,
+      channelId: context.slackChannelId,
+      hasThread: context.slackThreadTs !== undefined,
+      response: redactSensitiveLogText(responseText),
+    });
   }
 
   private resolveRuntimeSessionId(runtime: SessionRuntime): string | undefined {
@@ -709,4 +755,21 @@ function hasErrorCode(error: unknown, expectedCode: string): boolean {
     return false;
   }
   return (error as { code?: unknown }).code === expectedCode;
+}
+
+function redactSensitiveLogText(input: string): string {
+  let redacted = input;
+
+  redacted = redacted.replace(/\bBearer\s+[A-Za-z0-9._-]{8,}\b/gi, `Bearer ${LOG_REDACTED}`);
+  redacted = redacted.replace(
+    /\b((?:access|refresh|api)[_-]?(?:key|token|secret)|api[_-]?key|token|secret|password|authorization)\b(\s*[:=]\s*)(["'`]?)[^,\s"'`]+(["'`]?)/gi,
+    (_match, key: string, separator: string, openQuote: string, closeQuote: string) =>
+      `${key}${separator}${openQuote}${LOG_REDACTED}${closeQuote}`,
+  );
+
+  for (const pattern of SECRET_VALUE_PATTERNS) {
+    redacted = redacted.replace(pattern, LOG_REDACTED);
+  }
+
+  return redacted;
 }
