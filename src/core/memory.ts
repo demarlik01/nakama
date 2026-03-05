@@ -29,6 +29,13 @@ If a task requires files outside your workspace, ask the user for help.
 - For heartbeat checks that explicitly request it, reply with exactly: \`HEARTBEAT_OK\`.
 - Silent tokens must be the entire message with no extra text or markdown.
 
+## File Attachments
+- To send a workspace file to Slack, add a \`MEDIA:\` line in your response:
+  \`MEDIA:./path/to/file.png\`
+- Use workspace-relative paths only. Do not use absolute paths or \`../\`.
+- One MEDIA: token per line, outside of code blocks.
+- If only sending a file with no text, reply with \`NO_REPLY\` and include the \`MEDIA:\` line.
+
 ---
 
 {{agentsMd}}

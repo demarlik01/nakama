@@ -6,6 +6,7 @@ import { pipeline } from 'node:stream/promises';
 import { Readable } from 'node:stream';
 import { join, basename } from 'node:path';
 
+import type { ImageContent } from '@mariozechner/pi-ai';
 import type { AgentDefinition, AppConfig, SlackBlock, SlackMessageEvent } from '../types.js';
 import { createLogger, type Logger } from '../utils/logger.js';
 import type { MessageRouter } from '../core/router.js';
@@ -14,6 +15,14 @@ import { markdownToBlocks, markdownToPlainText, splitBlocksForSlack } from './bl
 import { registerCommands } from './commands.js';
 import { buildInboundContext, escapeMetadataSentinels, sanitizeInboundSystemTags } from './inbound-context.js';
 import { filterResponse } from './response-filter.js';
+import { splitMediaFromOutput } from './media-parser.js';
+import {
+  processSlackFile,
+  isProcessedImage,
+  isProcessedTextFile,
+  type SlackFile,
+  type ProcessedImage,
+} from './image-handler.js';
 
 import type { SessionManager } from '../core/session.js';
 
@@ -255,6 +264,12 @@ export class SlackGateway {
         route.agent.workspacePath,
       );
 
+      // Process files for multimodal vision (images → content blocks, text → inline tags)
+      const { imageContents, textFileTags } = await this.processFilesForVision(
+        rawEvent,
+        this.config.slack.botToken,
+      );
+
       const botUserId = route.agent.slackBotUserId;
       let userMessageText = botUserId
         ? stripBotMention(normalized.text ?? '', botUserId)
@@ -262,10 +277,15 @@ export class SlackGateway {
       userMessageText = sanitizeInboundSystemTags(userMessageText);
       userMessageText = escapeMetadataSentinels(userMessageText);
 
-      // Build message text, appending file paths if any
+      // Append downloaded file paths
       if (filePaths.length > 0) {
         const fileList = filePaths.map((p) => `- ${p}`).join('\n');
         userMessageText += `\n\n[Attached files downloaded to agent workspace]\n${fileList}`;
+      }
+
+      // Append text file contents inline
+      if (textFileTags.length > 0) {
+        userMessageText += '\n\n' + textFileTags.join('\n\n');
       }
 
       const inboundContext = buildInboundContext(
@@ -287,6 +307,7 @@ export class SlackGateway {
       messageSections.push(userMessageText);
       const messageText = messageSections.join('\n\n');
 
+      const images = imageContents.map((img) => img.content);
       const response = await this.sessionManager.handleMessage(
         route.agent.id,
         messageText,
@@ -295,12 +316,18 @@ export class SlackGateway {
           slackThreadTs: threadTs,
           slackUserId: normalized.user ?? 'unknown',
         },
+        images.length > 0 ? images : undefined,
       );
 
-      const hasMedia = false;
-      const filteredResponse = filterResponse(response, hasMedia);
+      // Parse MEDIA: tokens from LLM response
+      const { text: textWithoutMedia, mediaUrls } = splitMediaFromOutput(
+        response,
+        route.agent.workspacePath,
+      );
+      const hasMedia = mediaUrls.length > 0;
+      const filteredResponse = filterResponse(textWithoutMedia, hasMedia);
 
-      if (filteredResponse.shouldSend) {
+      if (filteredResponse.shouldSend && filteredResponse.text.length > 0) {
         await this.replyToSlack(
           client,
           say,
@@ -309,6 +336,20 @@ export class SlackGateway {
           threadTs,
           route.agent,
         );
+      }
+
+      // Upload media files to Slack
+      if (hasMedia && channel) {
+        for (const mediaPath of mediaUrls) {
+          try {
+            await this.uploadFile(channel, mediaPath, { threadTs });
+          } catch (uploadErr) {
+            this.logger.warn('Failed to upload media file', {
+              path: mediaPath,
+              error: String(uploadErr),
+            });
+          }
+        }
       }
 
       // ✅ Reaction: success
@@ -545,6 +586,47 @@ export class SlackGateway {
     }
 
     return downloaded;
+  }
+
+  /**
+   * Process Slack message files for multimodal vision.
+   * Returns image content blocks and text file tags.
+   */
+  private async processFilesForVision(
+    rawEvent: Record<string, unknown>,
+    botToken: string,
+  ): Promise<{
+    imageContents: ProcessedImage[];
+    textFileTags: string[];
+  }> {
+    const files = rawEvent.files;
+    if (!Array.isArray(files) || files.length === 0) {
+      return { imageContents: [], textFileTags: [] };
+    }
+
+    const imageContents: ProcessedImage[] = [];
+    const textFileTags: string[] = [];
+
+    for (const file of files) {
+      const slackFile = file as SlackFile;
+      try {
+        const processed = await processSlackFile(slackFile, botToken);
+        if (processed === null) continue;
+
+        if (isProcessedImage(processed)) {
+          imageContents.push(processed);
+        } else if (isProcessedTextFile(processed)) {
+          textFileTags.push(processed.tag);
+        }
+      } catch (err) {
+        this.logger.warn('Failed to process file for vision', {
+          name: slackFile.name,
+          error: String(err),
+        });
+      }
+    }
+
+    return { imageContents, textFileTags };
   }
 
   /**

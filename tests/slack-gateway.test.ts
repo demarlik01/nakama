@@ -259,6 +259,7 @@ describe('SlackGateway thread routing enhancements', () => {
         slackThreadTs: '1710000000.000001',
         slackUserId: 'U123',
       }),
+      undefined,
     );
 
     expect(postMessage).toHaveBeenCalled();
