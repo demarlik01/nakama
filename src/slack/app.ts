@@ -12,7 +12,7 @@ import type { MessageRouter } from '../core/router.js';
 import type { AgentRegistry } from '../core/registry.js';
 import { markdownToBlocks, markdownToPlainText, splitBlocksForSlack } from './block-kit.js';
 import { registerCommands } from './commands.js';
-import { buildInboundContext, sanitizeInboundSystemTags } from './inbound-context.js';
+import { buildInboundContext, escapeMetadataSentinels, sanitizeInboundSystemTags } from './inbound-context.js';
 import { filterResponse } from './response-filter.js';
 
 import type { SessionManager } from '../core/session.js';
@@ -255,9 +255,12 @@ export class SlackGateway {
         route.agent.workspacePath,
       );
 
-      const botUserId = route.agent.slackBotUserId ?? normalized.botUserId;
-      let userMessageText = stripBotMention(normalized.text ?? '', botUserId);
+      const botUserId = route.agent.slackBotUserId;
+      let userMessageText = botUserId
+        ? stripBotMention(normalized.text ?? '', botUserId)
+        : (normalized.text ?? '');
       userMessageText = sanitizeInboundSystemTags(userMessageText);
+      userMessageText = escapeMetadataSentinels(userMessageText);
 
       // Build message text, appending file paths if any
       if (filePaths.length > 0) {
@@ -604,10 +607,17 @@ ${originalMessage.text}`,
           },
         );
 
+        // Filter silent responses (NO_REPLY, HEARTBEAT_OK, empty)
+        const filteredResponse = filterResponse(response, false);
+        if (!filteredResponse.shouldSend) {
+          await removeReaction(client, channel, messageTs, 'eyes').catch(() => {});
+          continue;
+        }
+
         // Post response in thread
-        const blocks = markdownToBlocks(response);
+        const blocks = markdownToBlocks(filteredResponse.text);
         const blockChunks = splitBlocksForSlack(blocks);
-        const plainFallback = markdownToPlainText(response);
+        const plainFallback = markdownToPlainText(filteredResponse.text);
         const textChunks = splitMessage(plainFallback, SLACK_MAX_MESSAGE_LENGTH);
         const identityOverrides = this.getMessageIdentityOverrides(agent);
 

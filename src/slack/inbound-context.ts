@@ -59,6 +59,19 @@ export function sanitizeInboundSystemTags(input: string): string {
     .replace(/^(\s*)System:(?=\s|$)/gim, '$1System (untrusted):');
 }
 
+/**
+ * Escape metadata sentinel strings in user input to prevent spoofing.
+ * Replaces exact sentinel text with a visually similar but non-matching version.
+ */
+export function escapeMetadataSentinels(input: string): string {
+  let result = input;
+  for (const sentinel of INBOUND_META_SENTINELS) {
+    // Replace sentinel with zero-width-space-injected version to break matching
+    result = result.replaceAll(sentinel, sentinel.replace('(', '(\u200B'));
+  }
+  return result;
+}
+
 export function stripInboundMetadata(text: string): string {
   let remaining = text;
   let strippedAny = false;
