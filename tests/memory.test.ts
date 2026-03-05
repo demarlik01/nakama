@@ -62,6 +62,9 @@ describe('buildSystemPrompt', () => {
     expect(prompt).toContain('- Keep responses concise and actionable.');
     expect(prompt).toContain('- Follow the tone and behavior described in your AGENTS.md.');
     expect(prompt).toContain('Do not use ../ or absolute paths to escape your workspace.');
+    expect(prompt).toContain('## Inbound Metadata');
+    expect(prompt).toContain('## Silent Response');
+    expect(prompt).toContain('reply with exactly: `NO_REPLY`');
   });
 });
 

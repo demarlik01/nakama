@@ -12,6 +12,8 @@ import type { MessageRouter } from '../core/router.js';
 import type { AgentRegistry } from '../core/registry.js';
 import { markdownToBlocks, markdownToPlainText, splitBlocksForSlack } from './block-kit.js';
 import { registerCommands } from './commands.js';
+import { buildInboundContext, sanitizeInboundSystemTags } from './inbound-context.js';
+import { filterResponse } from './response-filter.js';
 
 import type { SessionManager } from '../core/session.js';
 
@@ -253,19 +255,34 @@ export class SlackGateway {
         route.agent.workspacePath,
       );
 
+      const botUserId = route.agent.slackBotUserId ?? normalized.botUserId;
+      let userMessageText = stripBotMention(normalized.text ?? '', botUserId);
+      userMessageText = sanitizeInboundSystemTags(userMessageText);
+
       // Build message text, appending file paths if any
-      let messageText = normalized.text ?? '';
       if (filePaths.length > 0) {
         const fileList = filePaths.map((p) => `- ${p}`).join('\n');
-        messageText += `\n\n[Attached files downloaded to agent workspace]\n${fileList}`;
+        userMessageText += `\n\n[Attached files downloaded to agent workspace]\n${fileList}`;
       }
+
+      const inboundContext = buildInboundContext(
+        {
+          ...normalized,
+          ts: messageTs,
+          botUserId,
+        },
+        type,
+      );
+      const messageSections = inboundContext.length > 0 ? [inboundContext] : [];
 
       if (isNewChannelThreadStart && channel.length > 0) {
         const recentContext = await this.buildRecentChannelContext(client, channel, messageTs);
         if (recentContext !== undefined) {
-          messageText = `${recentContext}\n\n${messageText}`;
+          messageSections.push(recentContext);
         }
       }
+      messageSections.push(userMessageText);
+      const messageText = messageSections.join('\n\n');
 
       const response = await this.sessionManager.handleMessage(
         route.agent.id,
@@ -277,14 +294,28 @@ export class SlackGateway {
         },
       );
 
-      await this.replyToSlack(client, say, normalized.channel, response, threadTs, route.agent);
+      const hasMedia = false;
+      const filteredResponse = filterResponse(response, hasMedia);
+
+      if (filteredResponse.shouldSend) {
+        await this.replyToSlack(
+          client,
+          say,
+          normalized.channel,
+          filteredResponse.text,
+          threadTs,
+          route.agent,
+        );
+      }
 
       // ✅ Reaction: success
       if (channel && messageTs) {
         await removeReaction(client, channel, messageTs, 'eyes').catch(() => {});
-        await addReaction(client, channel, messageTs, 'white_check_mark').catch((err) => {
-          this.logger.warn('Failed to add check reaction', { error: String(err) });
-        });
+        if (filteredResponse.shouldSend) {
+          await addReaction(client, channel, messageTs, 'white_check_mark').catch((err) => {
+            this.logger.warn('Failed to add check reaction', { error: String(err) });
+          });
+        }
       }
     } catch (error) {
       // ❌ Reaction: error
@@ -909,8 +940,21 @@ function parseMentionedBotUserId(text: string | undefined): string | undefined {
   return match?.[1];
 }
 
+function stripBotMention(text: string, botUserId: string | undefined): string {
+  if (botUserId === undefined || botUserId.length === 0) {
+    return text.trim();
+  }
+
+  const mentionPattern = new RegExp(`<@${escapeRegExp(botUserId)}>`, 'g');
+  return text.replace(mentionPattern, '').trim();
+}
+
 function asOptionalString(value: unknown): string | undefined {
   return typeof value === 'string' ? value : undefined;
+}
+
+function escapeRegExp(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }
 
 function getAgentChannelMode(agent: AgentDefinition, channelId: string): 'mention' | 'proactive' {
