@@ -4,6 +4,17 @@
 
 ---
 
+## 완료
+
+### /crew 서브커맨드 통합 (2026-03-06)
+- `/assign`, `/unassign`, `/agents`, `/switch` 4개 → `/crew` 하나로 통합
+- 서브커맨드: `agents`, `assign {agent}`, `unassign`, `switch {agent}`
+- 서브커맨드 없이 `/crew`만 입력 시 도움말 표시
+- Slack 앱 설정에서 `/crew` 커맨드 등록 필요 (Socket Mode)
+- 파일: src/slack/commands.ts, tests/slack-commands.test.ts (테스트 6개)
+
+---
+
 ## 에이전트 프로필 커스터마이징
 
 **목표:** 에이전트마다 고유 프로필 사진 + 이름으로 슬랙에 표시
