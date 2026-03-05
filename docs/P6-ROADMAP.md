@@ -224,14 +224,14 @@ MEDIA:./path/to/file.png
 ```
 
 **체크리스트:**
-- [ ] 봇 토큰 `files:write` 스코프 확인
-- [ ] `splitMediaFromOutput()` — MEDIA: 토큰 파싱 함수
-- [ ] 코드블록 내부 MEDIA: 무시 처리
-- [ ] 경로 보안 검증 (워크스페이스 내부만, `..` 차단)
-- [ ] MIME 기반 슬랙 전송 분기 (이미지→image, 기타→file)
-- [ ] `files.uploadV2`로 현재 채널/스레드에 업로드
-- [ ] 시스템 프롬프트에 MEDIA: 사용법 추가
-- [ ] 테스트: LLM이 MEDIA: 포함 응답 → 슬랙에 파일 첨부
+- [x] 봇 토큰 `files:write` 스코프 확인
+- [x] `splitMediaFromOutput()` — MEDIA: 토큰 파싱 함수
+- [x] 코드블록 내부 MEDIA: 무시 처리
+- [x] 경로 보안 검증 (워크스페이스 내부만, `..` 차단)
+- [x] MIME 기반 슬랙 전송 분기 (이미지→image, 기타→file)
+- [x] `files.uploadV2`로 현재 채널/스레드에 업로드
+- [x] 시스템 프롬프트에 MEDIA: 사용법 추가
+- [x] 테스트: LLM이 MEDIA: 포함 응답 → 슬랙에 파일 첨부
 - [ ] 테스트: 코드블록 안 MEDIA: → 무시됨
 
 ## Phase 6: 이미지 비전 (멀티모달 입력)
@@ -292,17 +292,17 @@ MEDIA:./path/to/file.png
 - 다운로드 인증: `url_private` + `Authorization: Bearer xoxb-...` 헤더
 
 **체크리스트:**
-- [ ] 슬랙 파일 다운로드 유틸 (`url_private` + Bearer 토큰)
-- [ ] `inferMimeType()` — 매직바이트 기반 MIME 감지
-- [ ] `resizeImageIfNeeded()` — 1200px/5MB 한도 자동 리사이즈 (sharp 또는 canvas)
-- [ ] base64 변환 + content block 생성
-- [ ] Pi SDK 세션에 이미지 content block 전달 방식 확인
-- [ ] `handleSlackEvent()`에서 이미지/비이미지 분기
-- [ ] 비이미지 파일 → `<file>` 태그로 텍스트 주입
-- [ ] 다운로드 인증 디버깅 (HTML 리다이렉트 문제)
-- [ ] 테스트: 이미지 업로드 → LLM이 내용 설명
-- [ ] 테스트: 큰 이미지 (4000x3000) → 자동 리사이즈 후 정상 처리
-- [ ] 테스트: JPEG 확장자인데 실제 PNG → 매직바이트로 정확히 감지
+- [x] 슬랙 파일 다운로드 유틸 (`url_private` + Bearer 토큰)
+- [x] `inferMimeType()` — 매직바이트 기반 MIME 감지
+- [x] `resizeImageIfNeeded()` — 1200px/5MB 한도 자동 리사이즈 (sharp 또는 canvas)
+- [x] base64 변환 + content block 생성
+- [x] Pi SDK 세션에 이미지 content block 전달 방식 확인
+- [x] `handleSlackEvent()`에서 이미지/비이미지 분기
+- [x] 비이미지 파일 → `<file>` 태그로 텍스트 주입
+- [x] 다운로드 인증 디버깅 (HTML 리다이렉트 문제)
+- [x] 테스트: 이미지 업로드 → LLM이 내용 설명
+- [x] 테스트: 큰 이미지 (4000x3000) → 자동 리사이즈 후 정상 처리
+- [x] 테스트: JPEG 확장자인데 실제 PNG → 매직바이트로 정확히 감지
 
 ## Phase 7: (예비) 추가 발견 사항
 

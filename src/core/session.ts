@@ -41,6 +41,7 @@ import {
 interface QueuedMessage {
   message: string;
   context: SessionMessageContext;
+  images?: import('@mariozechner/pi-ai').ImageContent[];
   resolve: (value: string) => void;
   reject: (reason?: unknown) => void;
 }
@@ -147,6 +148,7 @@ export class SessionManager {
     agentId: string,
     message: string,
     context: SessionMessageContext,
+    images?: import('@mariozechner/pi-ai').ImageContent[],
   ): Promise<string> {
     const agent = this.registry.getById(agentId);
     if (agent === undefined) {
@@ -168,7 +170,7 @@ export class SessionManager {
     });
 
     return new Promise<string>((resolve, reject) => {
-      runtime.queue.push({ message, context, resolve, reject });
+      runtime.queue.push({ message, context, images, resolve, reject });
       runtime.state.queueDepth = runtime.queue.length;
       runtime.state.lastActivityAt = new Date();
       this.logger.info('Queued message for Pi SDK agent', {
@@ -388,7 +390,7 @@ export class SessionManager {
       });
 
       try {
-        const response = await this.runAgentTurn(agent, item.message, item.context, runtime);
+        const response = await this.runAgentTurn(agent, item.message, item.context, runtime, item.images);
         runtime.state.status = 'idle';
         runtime.state.error = undefined;
         runtime.state.lastActivityAt = new Date();
@@ -582,10 +584,12 @@ export class SessionManager {
     message: string,
     context: SessionMessageContext,
     runtime: SessionRuntime,
+    images?: import('@mariozechner/pi-ai').ImageContent[],
   ): Promise<string> {
     const session = await this.getOrCreatePiSession(agent, runtime);
 
-    await session.prompt(message);
+    const promptOptions = images !== undefined && images.length > 0 ? { images } : undefined;
+    await session.prompt(message, promptOptions);
 
     // Record usage from all new assistant messages
     this.recordUsageFromMessages(

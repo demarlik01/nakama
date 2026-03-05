@@ -6,7 +6,6 @@ import { pipeline } from 'node:stream/promises';
 import { Readable } from 'node:stream';
 import { join, basename } from 'node:path';
 
-import type { ImageContent } from '@mariozechner/pi-ai';
 import type { AgentDefinition, AppConfig, SlackBlock, SlackMessageEvent } from '../types.js';
 import { createLogger, type Logger } from '../utils/logger.js';
 import type { MessageRouter } from '../core/router.js';
