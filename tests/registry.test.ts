@@ -107,6 +107,7 @@ describe('AgentRegistry', () => {
     expect(agentsMd).toContain('## Boundaries');
     expect(agentsMd).toContain('## DM vs Group Policy');
     expect(agentsMd).toContain('## Response Decision Checklist');
+    expect(agentsMd).toContain('## Silent Response');
     expect(agentsMd).toContain('## Anti-Overresponse Rules');
     expect(agentsMd).toContain('## Thread vs Channel Response Guidance');
     expect(agentsMd).toContain('## Reporting Style');
