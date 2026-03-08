@@ -107,13 +107,13 @@ describe('buildSessionKey', () => {
     expect(key).toBe('agent-a:C123');
   });
 
-  it('per-thread mode: returns agentId:threadTs', () => {
+  it('per-thread mode: returns agentId:channelId:threadTs', () => {
     const key = buildSessionKey(makeAgent('per-thread'), {
       slackChannelId: 'C123',
       slackThreadTs: 'T456',
       slackUserId: 'U789',
     });
-    expect(key).toBe('agent-a:T456');
+    expect(key).toBe('agent-a:C123:T456');
   });
 
   it('per-thread mode: falls back to per-channel when no thread', () => {
@@ -130,7 +130,7 @@ describe('buildSessionKey', () => {
       slackThreadTs: 'T456',
       slackUserId: 'U789',
     });
-    expect(key).toBe('agent-a:T456');
+    expect(key).toBe('agent-a:C123:T456');
   });
 });
 
@@ -254,7 +254,7 @@ describe('SessionManager session modes', () => {
     expect(sessions).toHaveLength(2);
 
     const keys = sessions.map((s) => s.sessionKey).sort();
-    expect(keys).toEqual(['thread-agent:T001', 'thread-agent:T002']);
+    expect(keys).toEqual(['thread-agent:C123:T001', 'thread-agent:C123:T002']);
   });
 
   it('per-thread mode: non-thread message falls back to per-channel', async () => {
@@ -298,7 +298,7 @@ describe('SessionManager session modes', () => {
     expect(sessions).toHaveLength(2);
     const keys = sessions.map((s) => s.sessionKey).sort();
     expect(keys).toContain('main-session-agent');
-    expect(keys).toContain('main-session-agent:T001');
+    expect(keys).toContain('main-session-agent:C123:T001');
   });
 
   it('disposeSession(agentId) disposes all sessions for that agent', async () => {

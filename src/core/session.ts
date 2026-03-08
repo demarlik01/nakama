@@ -97,7 +97,7 @@ export function buildSessionKey(
       return `${agent.id}:${context.slackChannelId}`;
     case 'per-thread': {
       if (context.slackThreadTs !== undefined) {
-        return `${agent.id}:${context.slackThreadTs}`;
+        return `${agent.id}:${context.slackChannelId}:${context.slackThreadTs}`;
       }
       // Fallback to per-channel when there's no thread
       return `${agent.id}:${context.slackChannelId}`;
@@ -767,6 +767,24 @@ export class SessionManager {
     return customTools;
   }
 
+  /**
+   * Derive a session-specific subdirectory for storing session files.
+   * For `single` mode, uses the base session dir.
+   * For multi-session modes, creates a subdirectory based on sessionKey hash
+   * to prevent cross-contamination between sessions.
+   */
+  private getSessionDir(agent: AgentDefinition, sessionKey: string): string {
+    const mode = resolveSessionMode(agent);
+    const baseDir = getAgentSessionDir(agent);
+    if (mode === 'single' || sessionKey === agent.id) {
+      return baseDir;
+    }
+    // Use sessionKey suffix (after agentId:) as subdirectory name
+    // Replace colons with underscores for filesystem safety
+    const suffix = sessionKey.slice(agent.id.length + 1).replace(/:/g, '_');
+    return path.join(baseDir, suffix);
+  }
+
   private async getOrCreatePiSession(
     agent: AgentDefinition,
     runtime: SessionRuntime,
@@ -783,7 +801,7 @@ export class SessionManager {
     });
     const modelSpec = agent.model ?? this.config.llm.defaultModel;
     const resolvedModel = this.llmProvider.resolveModel(modelSpec);
-    const sessionDir = getAgentSessionDir(agent);
+    const sessionDir = this.getSessionDir(agent, runtime.state.sessionKey);
 
     let sessionManager = PiSessionManager.continueRecent(agent.workspacePath, sessionDir);
 
@@ -966,8 +984,12 @@ export class SessionManager {
       // Don't GC running or queued sessions
       if (runtime.processing || runtime.queue.length > 0) continue;
 
+      // Use config ttlDays if set, otherwise default 24h
+      const ttlMs = this.config.session.ttlDays > 0
+        ? this.config.session.ttlDays * 24 * 60 * 60 * 1000
+        : DEFAULT_SESSION_TTL_MS;
       const idleMs = now - runtime.state.lastActivityAt.getTime();
-      if (idleMs > DEFAULT_SESSION_TTL_MS) {
+      if (idleMs > ttlMs) {
         keysToDispose.push(key);
       }
     }

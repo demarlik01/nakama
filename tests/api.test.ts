@@ -24,7 +24,9 @@ describeApi('REST API - Agent CRUD', () => {
 
   const mockSessionManager = {
     getActiveSession: (_id: string): SessionState | undefined => undefined,
+    getSessionsForAgent: (_id: string): SessionState[] => [],
     getAllSessions: () => [],
+    disposeSession: async () => {},
   } as unknown as SessionManager;
 
   beforeEach(async () => {
