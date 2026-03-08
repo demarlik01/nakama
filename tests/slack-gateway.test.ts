@@ -138,6 +138,46 @@ describe('SlackGateway identity override behavior', () => {
     expect(payload.icon_emoji).toBeUndefined();
   });
 
+  it('uses icon_url when slackIcon has uppercase URL scheme', async () => {
+    const postMessage = vi.fn(async (_payload: Record<string, unknown>) => ({ ok: true }));
+    const gateway = createGateway(postMessage);
+
+    await gateway.postMessage('C123', 'hello world', undefined, createAgent({
+      slackIcon: 'HTTPS://example.com/avatar.png',
+    }));
+
+    expect(postMessage).toHaveBeenCalledTimes(1);
+    const payload = postMessage.mock.calls[0]?.[0] as Record<string, unknown>;
+    expect(payload.icon_url).toBe('HTTPS://example.com/avatar.png');
+    expect(payload.icon_emoji).toBeUndefined();
+  });
+
+  it('retries without overrides when Slack rejects icon_url customization', async () => {
+    const postMessage = vi
+      .fn<(payload: Record<string, unknown>) => Promise<unknown>>()
+      .mockRejectedValueOnce({
+        data: { error: 'missing_scope' },
+      })
+      .mockResolvedValue({ ok: true });
+
+    const gateway = createGateway(postMessage);
+
+    await gateway.postMessage('C123', 'hello world', undefined, createAgent({
+      slackDisplayName: 'Agent Bot',
+      slackIcon: 'https://example.com/avatar.png',
+    }));
+
+    expect(postMessage).toHaveBeenCalledTimes(2);
+
+    const firstPayload = postMessage.mock.calls[0]?.[0] as Record<string, unknown>;
+    const secondPayload = postMessage.mock.calls[1]?.[0] as Record<string, unknown>;
+
+    expect(firstPayload.username).toBe('Agent Bot');
+    expect(firstPayload.icon_url).toBe('https://example.com/avatar.png');
+    expect(secondPayload.username).toBeUndefined();
+    expect(secondPayload.icon_url).toBeUndefined();
+  });
+
   it('uses icon_emoji when slackIcon is an emoji shortcode', async () => {
     const postMessage = vi.fn(async (_payload: Record<string, unknown>) => ({ ok: true }));
     const gateway = createGateway(postMessage);

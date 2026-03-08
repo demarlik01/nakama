@@ -974,7 +974,8 @@ function normalizeSlackIconEmoji(value: string | undefined): string | undefined 
 }
 
 function isSlackIconUrl(value: string): boolean {
-  return value.startsWith('http://') || value.startsWith('https://');
+  const lower = value.toLowerCase();
+  return lower.startsWith('http://') || lower.startsWith('https://');
 }
 
 function resolveSlackIcon(
