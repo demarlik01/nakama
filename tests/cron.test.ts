@@ -19,6 +19,7 @@ function createMockRegistry() {
 function createMockSessionManager() {
   return {
     handleMessage: vi.fn(async () => 'Cron response'),
+    handleMainSessionMessage: vi.fn(async () => 'Cron response'),
     runIsolatedTurn: vi.fn(async () => 'Isolated response'),
     getActiveSession: vi.fn(() => undefined),
     getMessageCount: vi.fn(() => 0),
@@ -233,7 +234,7 @@ describe('CronService', () => {
 
     const response = await service.runNow(job.id);
     expect(response).toBe('Cron response');
-    expect(sessionManager.handleMessage).toHaveBeenCalled();
+    expect(sessionManager.handleMainSessionMessage).toHaveBeenCalled();
     service.stop();
   });
 
@@ -328,7 +329,7 @@ describe('CronService', () => {
 
     await service.runNow(job.id);
     expect(heartbeatRunner.requestHeartbeatNow).toHaveBeenCalledWith('test-agent');
-    expect(sessionManager.handleMessage).toHaveBeenCalled();
+    expect(sessionManager.handleMainSessionMessage).toHaveBeenCalled();
     service.stop();
   });
 

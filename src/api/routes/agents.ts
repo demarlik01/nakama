@@ -6,6 +6,7 @@ import type {
   AgentDefinition,
   ChannelConfig,
   CreateAgentParams,
+  SessionMode,
   SessionStatus,
   UpdateAgentParams,
 } from '../../types.js';
@@ -351,6 +352,7 @@ function asCreateAgentParams(value: unknown): CreateAgentParams {
     channels,
     slackUsers: asOptionalStringArray(body.slackUsers, 'slackUsers') ?? [],
     model: asString(body.model, 'model'),
+    sessionMode: asOptionalSessionMode(body.sessionMode, 'sessionMode'),
   };
 }
 
@@ -397,6 +399,10 @@ function asUpdateAgentParams(value: unknown): UpdateAgentParams {
   }
   if ('enabled' in body) {
     payload.enabled = asBoolean(body.enabled, 'enabled');
+  }
+
+  if ('sessionMode' in body) {
+    payload.sessionMode = asOptionalSessionMode(body.sessionMode, 'sessionMode');
   }
 
   if ('schedules' in body) {
@@ -667,6 +673,18 @@ class RequestValidationError extends Error {
     super(message);
     this.name = 'RequestValidationError';
   }
+}
+
+const VALID_SESSION_MODES: readonly SessionMode[] = ['single', 'per-channel', 'per-thread'];
+
+function asOptionalSessionMode(value: unknown, label: string): SessionMode | undefined {
+  if (value === undefined || value === null) {
+    return undefined;
+  }
+  if (typeof value !== 'string' || !(VALID_SESSION_MODES as readonly string[]).includes(value)) {
+    throw new RequestValidationError(`${label} must be one of: ${VALID_SESSION_MODES.join(', ')}`);
+  }
+  return value as SessionMode;
 }
 
 function respondUnexpectedError(res: Response, logger: Logger, error: unknown): void {

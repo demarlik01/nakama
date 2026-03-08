@@ -20,6 +20,7 @@ import {
   type CronJobConfig,
   type CreateAgentParams,
   type HeartbeatConfig,
+  type SessionMode,
   type UpdateAgentParams,
 } from '../types.js';
 import { createLogger, type Logger } from '../utils/logger.js';
@@ -233,6 +234,7 @@ export class AgentRegistry extends EventEmitter<AgentRegistryEvents> {
         slackUsers: params.slackUsers,
         model: params.model,
         enabled: params.enabled ?? true,
+        sessionMode: params.sessionMode,
         schedules: params.schedules,
         heartbeat: params.heartbeat,
         cron: params.cron,
@@ -310,6 +312,7 @@ export class AgentRegistry extends EventEmitter<AgentRegistryEvents> {
       slackBotUserId: params.slackBotUserId ?? currentMetadata.slackBotUserId,
       model: params.model ?? currentMetadata.model,
       enabled: params.enabled ?? currentMetadata.enabled,
+      sessionMode: params.sessionMode ?? currentMetadata.sessionMode,
       schedules: params.schedules ?? currentMetadata.schedules,
       heartbeat: params.heartbeat ?? currentMetadata.heartbeat,
       cron: params.cron ?? currentMetadata.cron,
@@ -526,6 +529,7 @@ export class AgentRegistry extends EventEmitter<AgentRegistryEvents> {
       slackBotUserId: metadata.slackBotUserId,
       model: metadata.model,
       enabled: metadata.enabled,
+      sessionMode: metadata.sessionMode,
       schedules: metadata.schedules,
       heartbeat: metadata.heartbeat,
       cron: metadata.cron,
@@ -803,6 +807,7 @@ async function readJsonIfExists(filePath: string): Promise<AgentMetadata | null>
       enabled: asBoolean(parsed.enabled, 'enabled'),
       model: asOptionalString(parsed.model, 'model'),
       slackBotUserId: asOptionalString(parsed.slackBotUserId, 'slackBotUserId'),
+      sessionMode: asOptionalSessionMode(parsed.sessionMode, 'sessionMode'),
       schedules: asOptionalSchedules(parsed.schedules, 'schedules'),
       heartbeat: asOptionalHeartbeat(parsed.heartbeat, 'heartbeat'),
       cron: asOptionalCronJobs(parsed.cron, 'cron'),
@@ -1011,6 +1016,18 @@ function asOptionalString(value: unknown, label: string): string | undefined {
     throw new Error(`${label} must be a non-empty string when provided`);
   }
   return value;
+}
+
+const VALID_SESSION_MODES: readonly SessionMode[] = ['single', 'per-channel', 'per-thread'];
+
+function asOptionalSessionMode(value: unknown, label: string): SessionMode | undefined {
+  if (value === undefined) {
+    return undefined;
+  }
+  if (typeof value !== 'string' || !(VALID_SESSION_MODES as readonly string[]).includes(value)) {
+    throw new Error(`${label} must be one of: ${VALID_SESSION_MODES.join(', ')}`);
+  }
+  return value as SessionMode;
 }
 
 function isObject(value: unknown): value is Record<string, unknown> {

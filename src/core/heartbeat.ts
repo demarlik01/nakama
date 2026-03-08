@@ -218,8 +218,8 @@ export class HeartbeatRunner {
 
     this.logger.info('Sending heartbeat', { agentId: agent.id });
 
-    // Send prompt to agent session
-    const response = await this.sessionManager.handleMessage(agent.id, prompt, {
+    // Send prompt to agent's main session (regardless of sessionMode)
+    const response = await this.sessionManager.handleMainSessionMessage(agent.id, prompt, {
       slackChannelId: channel,
       slackUserId: 'system:heartbeat',
     });
