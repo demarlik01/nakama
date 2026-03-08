@@ -111,8 +111,14 @@ describe('AgentRegistry', () => {
     expect(agentsMd).toContain('## Anti-Overresponse Rules');
     expect(agentsMd).toContain('## Thread vs Channel Response Guidance');
     expect(agentsMd).toContain('## Reporting Style');
+    expect(agentsMd).toContain('### Memory Maintenance (During Heartbeats)');
+    expect(agentsMd).toContain('never delete them');
 
     expect(memoryMd).toContain('# MEMORY');
+    expect(memoryMd).toContain('## How to Use');
+    expect(memoryMd).toContain('## User Preferences');
+    expect(memoryMd).toContain('## Key Decisions');
+    expect(memoryMd).toContain('## Lessons Learned');
     expect(existsSync(join(workspace, 'memory', `${today}.md`))).toBe(true);
 
     expect(skillsReadme).toContain('# Skills');
