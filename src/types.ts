@@ -70,6 +70,8 @@ export interface LimitsConfig {
   proactiveResponseMinIntervalSec?: number;
 }
 
+export type SessionMode = 'single' | 'per-channel' | 'per-thread';
+
 export type ChannelMode = 'mention' | 'proactive';
 
 export interface ChannelConfig {
@@ -92,6 +94,7 @@ export interface AgentDefinition {
   slackBotUserId?: string;
   model?: string;
   enabled: boolean;
+  sessionMode?: SessionMode;
   schedules?: AgentSchedule[];
   heartbeat?: HeartbeatConfig;
   cron?: CronJobConfig[];
@@ -138,6 +141,7 @@ export interface AgentMetadata {
   slackBotUserId?: string;
   model?: string;
   enabled: boolean;
+  sessionMode?: SessionMode;
   schedules?: AgentSchedule[];
   heartbeat?: HeartbeatConfig;
   cron?: CronJobConfig[];
@@ -160,6 +164,7 @@ export interface CreateAgentParams {
   slackUsers: string[];
   model?: string;
   enabled?: boolean;
+  sessionMode?: SessionMode;
   schedules?: AgentSchedule[];
   heartbeat?: HeartbeatConfig;
   cron?: CronJobConfig[];
@@ -181,6 +186,7 @@ export interface UpdateAgentParams {
   slackBotUserId?: string;
   model?: string;
   enabled?: boolean;
+  sessionMode?: SessionMode;
   schedules?: AgentSchedule[];
   heartbeat?: HeartbeatConfig;
   cron?: CronJobConfig[];
@@ -199,6 +205,7 @@ export interface SessionMessageContext {
 
 export interface SessionState {
   agentId: string;
+  sessionKey: string;
   sessionId?: string;
   threadTs?: string;
   status: SessionStatus;

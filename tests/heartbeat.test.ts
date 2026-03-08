@@ -49,11 +49,11 @@ describe('HeartbeatRunner', () => {
   });
 
   it('posts heartbeat responses to the first configured channel key', async () => {
-    const handleMessage = vi.fn(async () => '작업이 필요합니다');
+    const handleMainSessionMessage = vi.fn(async () => '작업이 필요합니다');
     const getMessageCount = vi.fn(() => 0);
     const pruneMessagesFrom = vi.fn(() => 0);
     const sessionManager = {
-      handleMessage,
+      handleMainSessionMessage,
       getMessageCount,
       pruneMessagesFrom,
     } as unknown as SessionManager;
@@ -77,7 +77,7 @@ describe('HeartbeatRunner', () => {
 
     await runner.runOnce(agent);
 
-    expect(handleMessage).toHaveBeenCalledWith(
+    expect(handleMainSessionMessage).toHaveBeenCalledWith(
       agent.id,
       expect.any(String),
       expect.objectContaining({
@@ -89,11 +89,11 @@ describe('HeartbeatRunner', () => {
   });
 
   it('stays silent and prunes transcript on HEARTBEAT_OK', async () => {
-    const handleMessage = vi.fn(async () => 'HEARTBEAT_OK');
+    const handleMainSessionMessage = vi.fn(async () => 'HEARTBEAT_OK');
     const getMessageCount = vi.fn(() => 7);
     const pruneHeartbeatTurn = vi.fn(() => 2);
     const sessionManager = {
-      handleMessage,
+      handleMainSessionMessage,
       getMessageCount,
       pruneHeartbeatTurn,
     } as unknown as SessionManager;

@@ -14,6 +14,7 @@ import type {
   AgentDefinition,
   AppConfig,
   SessionMessageContext,
+  SessionMode,
   SessionState,
   SessionStatus,
 } from '../types.js';
@@ -57,7 +58,54 @@ interface SessionRuntime {
 }
 
 const SESSION_CLEANUP_INTERVAL_MS = 6 * 60 * 60 * 1000;
+const DEFAULT_SESSION_TTL_MS = 24 * 60 * 60 * 1000; // 24 hours
+const SESSION_GC_INTERVAL_MS = 30 * 60 * 1000; // 30 minutes
 const LOG_REDACTED = '[REDACTED]';
+
+/**
+ * Resolve the effective session mode for an agent.
+ * Default is 'per-thread' when not specified.
+ */
+export function resolveSessionMode(agent: AgentDefinition): SessionMode {
+  return agent.sessionMode ?? 'per-thread';
+}
+
+/**
+ * Get the main (single) session key for an agent.
+ * Used by heartbeat and cron which always operate on the primary session.
+ */
+export function getMainSessionKey(agentId: string): string {
+  return agentId;
+}
+
+/**
+ * Generate a composite session key based on the agent's session mode.
+ *
+ * - `single`      → `agentId`
+ * - `per-channel`  → `agentId:channelId`
+ * - `per-thread`   → `agentId:threadTs` (falls back to per-channel if no thread)
+ */
+export function buildSessionKey(
+  agent: AgentDefinition,
+  context: SessionMessageContext,
+): string {
+  const mode = resolveSessionMode(agent);
+  switch (mode) {
+    case 'single':
+      return agent.id;
+    case 'per-channel':
+      return `${agent.id}:${context.slackChannelId}`;
+    case 'per-thread': {
+      if (context.slackThreadTs !== undefined) {
+        return `${agent.id}:${context.slackChannelId}:${context.slackThreadTs}`;
+      }
+      // Fallback to per-channel when there's no thread
+      return `${agent.id}:${context.slackChannelId}`;
+    }
+    default:
+      return agent.id;
+  }
+}
 const SECRET_VALUE_PATTERNS = [
   /\bxox[baprs]-[A-Za-z0-9-]+\b/g,
   /\bxapp-[A-Za-z0-9-]+\b/g,
@@ -70,6 +118,7 @@ const SECRET_VALUE_PATTERNS = [
 export class SessionManager {
   private readonly sessions = new Map<string, SessionRuntime>();
   private readonly cleanupTimer?: NodeJS.Timeout;
+  private gcTimer?: NodeJS.Timeout;
   private cleanupAgentAddedListener?: (agent: AgentDefinition) => void;
   private lastCleanupAt = 0;
   private readonly llmProvider: PiSessionLlmProvider;
@@ -110,6 +159,12 @@ export class SessionManager {
       this.registry.on('agent:added', this.cleanupAgentAddedListener);
       this.maybeCleanupExpiredSessions();
     }
+
+    // Start GC timer for per-channel/per-thread sessions
+    this.gcTimer = setInterval(() => {
+      this.gcExpiredSessions();
+    }, SESSION_GC_INTERVAL_MS);
+    this.gcTimer.unref?.();
   }
 
   setSSEManager(sse: SSEManager): void {
@@ -138,10 +193,29 @@ export class SessionManager {
       clearInterval(this.cleanupTimer);
     }
 
+    if (this.gcTimer !== undefined) {
+      clearInterval(this.gcTimer);
+      this.gcTimer = undefined;
+    }
+
     if (this.cleanupAgentAddedListener !== undefined) {
       this.registry.off('agent:added', this.cleanupAgentAddedListener);
       this.cleanupAgentAddedListener = undefined;
     }
+  }
+
+  /**
+   * Send a message to the agent's main (single) session.
+   * Used by heartbeat and cron — always routes to the primary session
+   * regardless of the agent's sessionMode setting.
+   */
+  async handleMainSessionMessage(
+    agentId: string,
+    message: string,
+    context: SessionMessageContext,
+    images?: import('@mariozechner/pi-ai').ImageContent[],
+  ): Promise<string> {
+    return this.handleMessageInternal(agentId, message, context, images, getMainSessionKey(agentId));
   }
 
   async handleMessage(
@@ -155,9 +229,23 @@ export class SessionManager {
       throw new Error(`Agent not found: ${agentId}`);
     }
 
-    this.maybeCleanupExpiredSessions();
+    return this.handleMessageInternal(agentId, message, context, images, buildSessionKey(agent, context));
+  }
 
-    const runtime = this.ensureSession(agent, context);
+  private async handleMessageInternal(
+    agentId: string,
+    message: string,
+    context: SessionMessageContext,
+    images: import('@mariozechner/pi-ai').ImageContent[] | undefined,
+    sessionKey: string,
+  ): Promise<string> {
+    const agent = this.registry.getById(agentId);
+    if (agent === undefined) {
+      throw new Error(`Agent not found: ${agentId}`);
+    }
+
+    this.maybeCleanupExpiredSessions();
+    const runtime = this.ensureSession(agent, context, sessionKey);
 
     if (runtime.queue.length >= this.config.session.maxQueueSize) {
       return 'Agent is currently busy. Please try again in a moment.';
@@ -165,6 +253,7 @@ export class SessionManager {
 
     this.sseManager?.emit('session:message', {
       agentId,
+      sessionKey,
       role: 'user',
       preview: message.slice(0, 200),
     });
@@ -175,6 +264,7 @@ export class SessionManager {
       runtime.state.lastActivityAt = new Date();
       this.logger.info('Queued message for Pi SDK agent', {
         agentId,
+        sessionKey,
         channelId: context.slackChannelId,
         slackUserId: context.slackUserId,
         hasThread: context.slackThreadTs !== undefined,
@@ -183,22 +273,24 @@ export class SessionManager {
       });
       this.logger.debug('Queued message for Pi SDK agent (payload)', {
         agentId,
+        sessionKey,
         channelId: context.slackChannelId,
         slackUserId: context.slackUserId,
         hasThread: context.slackThreadTs !== undefined,
         queueDepth: runtime.queue.length,
         inboundMessage: redactSensitiveLogText(message),
       });
-      void this.processQueue(agent, runtime);
+      void this.processQueue(agent, runtime, sessionKey);
     });
   }
 
   /**
    * Get the current message count for an agent's session.
    * Used by HeartbeatRunner to track pre-heartbeat state for pruning.
+   * Looks up by sessionKey first, falls back to agentId (single mode).
    */
-  getMessageCount(agentId: string): number {
-    const runtime = this.sessions.get(agentId);
+  getMessageCount(agentId: string, sessionKey?: string): number {
+    const runtime = this.sessions.get(sessionKey ?? agentId);
     return (runtime?.piSession?.state.messages as unknown[] | undefined)?.length ?? 0;
   }
 
@@ -208,8 +300,8 @@ export class SessionManager {
    * NOTE: This only prunes in-memory state. The .jsonl file retains entries
    * but they won't be sent to the LLM in subsequent turns.
    */
-  pruneMessagesFrom(agentId: string, fromIndex: number): number {
-    const runtime = this.sessions.get(agentId);
+  pruneMessagesFrom(agentId: string, fromIndex: number, sessionKey?: string): number {
+    const runtime = this.sessions.get(sessionKey ?? agentId);
     if (!runtime?.piSession) return 0;
 
     const messages = runtime.piSession.state.messages as unknown[];
@@ -225,8 +317,8 @@ export class SessionManager {
    * Walks backward from the end to find and remove the heartbeat user prompt
    * and assistant HEARTBEAT_OK response, without touching other messages.
    */
-  pruneHeartbeatTurn(agentId: string, currentLength: number): number {
-    const runtime = this.sessions.get(agentId);
+  pruneHeartbeatTurn(agentId: string, currentLength: number, sessionKey?: string): number {
+    const runtime = this.sessions.get(sessionKey ?? agentId);
     if (!runtime?.piSession) return 0;
 
     const messages = runtime.piSession.state.messages as Array<{ role?: string; content?: unknown }>;
@@ -303,7 +395,7 @@ export class SessionManager {
 
     // Record usage
     this.recordUsageFromMessages(agent, {
-      state: { agentId, status: 'idle', queueDepth: 0, lastActivityAt: new Date() },
+      state: { agentId, sessionKey: `isolated:${agentId}`, status: 'idle', queueDepth: 0, lastActivityAt: new Date() },
       queue: [],
       processing: false,
     }, session.state.messages as unknown as readonly unknown[]);
@@ -317,8 +409,36 @@ export class SessionManager {
     return extractTextFromMessage(lastMessage);
   }
 
+  /**
+   * Get the active session by agent ID.
+   * For agents with `single` mode, this returns the single session.
+   * For multi-session modes, returns the first session found for this agent.
+   */
   getActiveSession(agentId: string): SessionState | undefined {
-    return this.sessions.get(agentId)?.state;
+    // Direct key lookup first (single mode)
+    const direct = this.sessions.get(agentId);
+    if (direct !== undefined) return direct.state;
+
+    // Search through all sessions for this agent
+    for (const runtime of this.sessions.values()) {
+      if (runtime.state.agentId === agentId) {
+        return runtime.state;
+      }
+    }
+    return undefined;
+  }
+
+  /**
+   * Get all sessions for a specific agent.
+   */
+  getSessionsForAgent(agentId: string): SessionState[] {
+    const results: SessionState[] = [];
+    for (const runtime of this.sessions.values()) {
+      if (runtime.state.agentId === agentId) {
+        results.push(runtime.state);
+      }
+    }
+    return results;
   }
 
   getAllSessions(): SessionState[] {
@@ -344,7 +464,10 @@ export class SessionManager {
     let restoredCount = 0;
 
     for (const agent of agents) {
-      if (this.sessions.has(agent.id)) {
+      // For restoration, use the agent's single key (agentId).
+      // Multi-session modes will create new sessions as messages arrive.
+      const sessionKey = agent.id;
+      if (this.sessions.has(sessionKey)) {
         continue;
       }
 
@@ -358,6 +481,7 @@ export class SessionManager {
         const runtime: SessionRuntime = {
           state: {
             agentId: agent.id,
+            sessionKey,
             status: 'idle',
             queueDepth: 0,
             lastActivityAt: new Date(latest.modifiedAt),
@@ -369,8 +493,8 @@ export class SessionManager {
           sessionId: latest.sessionId,
         };
 
-        this.sessions.set(agent.id, runtime);
-        this.touchIdleTimer(agent.id, runtime);
+        this.sessions.set(sessionKey, runtime);
+        this.touchIdleTimer(sessionKey, runtime);
         restoredCount += 1;
       } catch (error: unknown) {
         this.logger.error('Failed to restore persisted session', {
@@ -388,8 +512,36 @@ export class SessionManager {
     }
   }
 
-  async disposeSession(agentId: string): Promise<void> {
-    const runtime = this.sessions.get(agentId);
+  /**
+   * Dispose a session by session key or agent ID.
+   * When called with just agentId, disposes ALL sessions for that agent.
+   */
+  async disposeSession(agentId: string, sessionKey?: string): Promise<void> {
+    if (sessionKey !== undefined) {
+      this.disposeSessionByKey(sessionKey);
+      return;
+    }
+
+    // Dispose all sessions for this agent (backward compatibility)
+    const keysToDispose: string[] = [];
+    for (const [key, runtime] of this.sessions) {
+      if (runtime.state.agentId === agentId) {
+        keysToDispose.push(key);
+      }
+    }
+
+    // Also check direct key
+    if (this.sessions.has(agentId) && !keysToDispose.includes(agentId)) {
+      keysToDispose.push(agentId);
+    }
+
+    for (const key of keysToDispose) {
+      this.disposeSessionByKey(key);
+    }
+  }
+
+  private disposeSessionByKey(sessionKey: string): void {
+    const runtime = this.sessions.get(sessionKey);
     if (runtime === undefined) {
       return;
     }
@@ -413,18 +565,23 @@ export class SessionManager {
     runtime.sessionId = undefined;
     runtime.state.sessionId = undefined;
 
-    this.sessions.delete(agentId);
+    const agentId = runtime.state.agentId;
+    this.sessions.delete(sessionKey);
 
-    this.sseManager?.emit('session:end', { agentId });
+    this.sseManager?.emit('session:end', { agentId, sessionKey });
     this.sseManager?.emit('agent:status', { agentId, status: 'disposed' });
 
-    this.logger.info('Session disposed', { agentId });
+    this.logger.info('Session disposed', { agentId, sessionKey });
   }
 
-  private ensureSession(agent: AgentDefinition, context: SessionMessageContext): SessionRuntime {
-    const existing = this.sessions.get(agent.id);
+  private ensureSession(
+    agent: AgentDefinition,
+    context: SessionMessageContext,
+    sessionKey: string,
+  ): SessionRuntime {
+    const existing = this.sessions.get(sessionKey);
     if (existing !== undefined) {
-      this.touchIdleTimer(agent.id, existing);
+      this.touchIdleTimer(sessionKey, existing);
       if (context.slackThreadTs !== undefined) {
         if (
           existing.state.threadTs !== undefined &&
@@ -441,6 +598,7 @@ export class SessionManager {
     const runtime: SessionRuntime = {
       state: {
         agentId: agent.id,
+        sessionKey,
         threadTs: context.slackThreadTs,
         status: 'idle',
         queueDepth: 0,
@@ -454,11 +612,12 @@ export class SessionManager {
       this.registry.registerThread(context.slackThreadTs, agent.id);
     }
 
-    this.sessions.set(agent.id, runtime);
-    this.touchIdleTimer(agent.id, runtime);
+    this.sessions.set(sessionKey, runtime);
+    this.touchIdleTimer(sessionKey, runtime);
 
     this.sseManager?.emit('session:start', {
       agentId: agent.id,
+      sessionKey,
       threadTs: context.slackThreadTs,
     });
     this.sseManager?.emit('agent:status', {
@@ -469,23 +628,24 @@ export class SessionManager {
     return runtime;
   }
 
-  private touchIdleTimer(agentId: string, runtime: SessionRuntime): void {
+  private touchIdleTimer(sessionKey: string, runtime: SessionRuntime): void {
     if (runtime.idleTimer !== undefined) {
       clearTimeout(runtime.idleTimer);
     }
 
     const idleTimeoutMs = this.config.session.idleTimeoutMin * 60_000;
     runtime.idleTimer = setTimeout(() => {
-      void this.disposeSession(agentId).catch((error: unknown) => {
+      void this.disposeSession(runtime.state.agentId, sessionKey).catch((error: unknown) => {
         this.logger.error('Failed to dispose timed-out session', {
-          agentId,
+          agentId: runtime.state.agentId,
+          sessionKey,
           error: error instanceof Error ? error.message : String(error),
         });
       });
     }, idleTimeoutMs);
   }
 
-  private async processQueue(agent: AgentDefinition, runtime: SessionRuntime): Promise<void> {
+  private async processQueue(agent: AgentDefinition, runtime: SessionRuntime, sessionKey: string): Promise<void> {
     if (runtime.processing) {
       return;
     }
@@ -525,6 +685,7 @@ export class SessionManager {
         });
         this.sseManager?.emit('session:message', {
           agentId: agent.id,
+          sessionKey,
           role: 'assistant',
           preview: typeof response === 'string' ? response.slice(0, 200) : '',
         });
@@ -562,7 +723,7 @@ export class SessionManager {
     }
 
     runtime.processing = false;
-    this.touchIdleTimer(agent.id, runtime);
+    this.touchIdleTimer(sessionKey, runtime);
     runtime.state.queueDepth = runtime.queue.length;
   }
 
@@ -606,6 +767,24 @@ export class SessionManager {
     return customTools;
   }
 
+  /**
+   * Derive a session-specific subdirectory for storing session files.
+   * For `single` mode, uses the base session dir.
+   * For multi-session modes, creates a subdirectory based on sessionKey hash
+   * to prevent cross-contamination between sessions.
+   */
+  private getSessionDir(agent: AgentDefinition, sessionKey: string): string {
+    const mode = resolveSessionMode(agent);
+    const baseDir = getAgentSessionDir(agent);
+    if (mode === 'single' || sessionKey === agent.id) {
+      return baseDir;
+    }
+    // Use sessionKey suffix (after agentId:) as subdirectory name
+    // Replace colons with underscores for filesystem safety
+    const suffix = sessionKey.slice(agent.id.length + 1).replace(/:/g, '_');
+    return path.join(baseDir, suffix);
+  }
+
   private async getOrCreatePiSession(
     agent: AgentDefinition,
     runtime: SessionRuntime,
@@ -622,7 +801,7 @@ export class SessionManager {
     });
     const modelSpec = agent.model ?? this.config.llm.defaultModel;
     const resolvedModel = this.llmProvider.resolveModel(modelSpec);
-    const sessionDir = getAgentSessionDir(agent);
+    const sessionDir = this.getSessionDir(agent, runtime.state.sessionKey);
 
     let sessionManager = PiSessionManager.continueRecent(agent.workspacePath, sessionDir);
 
@@ -785,6 +964,47 @@ export class SessionManager {
     }
 
     return undefined;
+  }
+
+  /**
+   * Garbage-collect idle per-channel/per-thread sessions that exceeded their TTL.
+   * Single-mode sessions are never GC'd by this method.
+   */
+  private gcExpiredSessions(): void {
+    const now = Date.now();
+    const keysToDispose: string[] = [];
+
+    for (const [key, runtime] of this.sessions) {
+      const agent = this.registry.getById(runtime.state.agentId);
+      if (agent === undefined) continue;
+
+      const mode = resolveSessionMode(agent);
+      if (mode === 'single') continue; // single-mode sessions don't get GC'd
+
+      // Don't GC running or queued sessions
+      if (runtime.processing || runtime.queue.length > 0) continue;
+
+      // Use config ttlDays if set, otherwise default 24h
+      const ttlMs = this.config.session.ttlDays > 0
+        ? this.config.session.ttlDays * 24 * 60 * 60 * 1000
+        : DEFAULT_SESSION_TTL_MS;
+      const idleMs = now - runtime.state.lastActivityAt.getTime();
+      if (idleMs > ttlMs) {
+        keysToDispose.push(key);
+      }
+    }
+
+    for (const key of keysToDispose) {
+      const runtime = this.sessions.get(key);
+      if (runtime) {
+        this.logger.info('GC: disposing expired session', {
+          agentId: runtime.state.agentId,
+          sessionKey: key,
+          idleMs: now - runtime.state.lastActivityAt.getTime(),
+        });
+        this.disposeSessionByKey(key);
+      }
+    }
   }
 
   private async cleanupExpiredSessions(agents: AgentDefinition[] = this.registry.getAll()): Promise<void> {

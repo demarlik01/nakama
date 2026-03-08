@@ -6,6 +6,7 @@ import type {
   AgentDefinition,
   ChannelConfig,
   CreateAgentParams,
+  SessionMode,
   SessionStatus,
   UpdateAgentParams,
 } from '../../types.js';
@@ -136,18 +137,24 @@ export function createAgentsRouter(deps: AgentsRouterDependencies): Router {
     try {
       const agentId = req.params.id;
 
-      // Dispose active session before removing
-      const session = deps.sessionManager.getActiveSession(agentId);
-      if (session !== undefined) {
-        if (session.status === 'running' || session.queueDepth > 0) {
-          res.status(409).json({
-            error: 'Agent has an active running session. Wait for completion before deleting.',
-          });
-          return;
-        }
+      // Check ALL sessions for this agent (multi-session support)
+      const allSessions = deps.sessionManager.getSessionsForAgent(agentId);
+      const hasRunning = allSessions.some(
+        (s) => s.status === 'running' || s.queueDepth > 0,
+      );
+      if (hasRunning) {
+        res.status(409).json({
+          error: 'Agent has an active running session. Wait for completion before deleting.',
+        });
+        return;
+      }
 
+      if (allSessions.length > 0) {
         await deps.sessionManager.disposeSession(agentId);
-        logger.info('Disposed active session before agent deletion', { agentId });
+        logger.info('Disposed active sessions before agent deletion', {
+          agentId,
+          sessionCount: allSessions.length,
+        });
       }
 
       await deps.registry.remove(agentId);
@@ -351,6 +358,7 @@ function asCreateAgentParams(value: unknown): CreateAgentParams {
     channels,
     slackUsers: asOptionalStringArray(body.slackUsers, 'slackUsers') ?? [],
     model: asString(body.model, 'model'),
+    sessionMode: asOptionalSessionMode(body.sessionMode, 'sessionMode'),
   };
 }
 
@@ -397,6 +405,10 @@ function asUpdateAgentParams(value: unknown): UpdateAgentParams {
   }
   if ('enabled' in body) {
     payload.enabled = asBoolean(body.enabled, 'enabled');
+  }
+
+  if ('sessionMode' in body) {
+    payload.sessionMode = asOptionalSessionMode(body.sessionMode, 'sessionMode');
   }
 
   if ('schedules' in body) {
@@ -667,6 +679,18 @@ class RequestValidationError extends Error {
     super(message);
     this.name = 'RequestValidationError';
   }
+}
+
+const VALID_SESSION_MODES: readonly SessionMode[] = ['single', 'per-channel', 'per-thread'];
+
+function asOptionalSessionMode(value: unknown, label: string): SessionMode | undefined {
+  if (value === undefined || value === null) {
+    return undefined;
+  }
+  if (typeof value !== 'string' || !(VALID_SESSION_MODES as readonly string[]).includes(value)) {
+    throw new RequestValidationError(`${label} must be one of: ${VALID_SESSION_MODES.join(', ')}`);
+  }
+  return value as SessionMode;
 }
 
 function respondUnexpectedError(res: Response, logger: Logger, error: unknown): void {

@@ -319,7 +319,7 @@ export class CronService {
         slackUserId: `system:cron:${job.id}`,
       };
 
-      response = await this.sessionManager.handleMessage(
+      response = await this.sessionManager.handleMainSessionMessage(
         job.agentId,
         appendTimestamp(job.payload.message),
         context,
