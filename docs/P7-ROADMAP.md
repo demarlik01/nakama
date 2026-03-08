@@ -1,6 +1,6 @@
-# P7 Roadmap — 추가 툴 확장
+# P7 Roadmap — 에이전트 프로필 & 메모리 고도화
 
-> P6 Phase 4a 완료 후 진행. 에이전트 능력 확장.
+> 에이전트 개성 + 메모리 관리 강화
 
 ---
 
@@ -13,25 +13,17 @@
 - Slack 앱 설정에서 `/crew` 커맨드 등록 필요 (Socket Mode)
 - 파일: src/slack/commands.ts, tests/slack-commands.test.ts (테스트 6개)
 
----
-
-## 멀티에이전트 채널 라우팅
-
-**목표:** 한 채널에 여러 에이전트를 배정하고 자연스럽게 라우팅
-
-**설계:**
-- `/crew assign` 으로 채널에 여러 에이전트 배정 가능 (1개 제한 해제)
+### 멀티에이전트 채널 라우팅 (2026-03-06)
+- 한 채널에 여러 에이전트 배정 가능 (1개 제한 해제)
 - `/crew default {agent}` — 채널 기본 에이전트 지정
-- `@Crew` 만 멘션 → 기본 에이전트가 응답
-- `@Crew {agent-name} ...` → 지정한 에이전트가 응답
-- 스레드 점유: 에이전트가 스레드에 처음 응답하면 그 스레드는 해당 에이전트 담당
+- 라우팅 우선순위: 스레드 점유 → /as → 이름 매칭 → 채널 default → 첫 번째 폴백
+- 테스트 115개 통과, 커밋: cf43509
 
-**변경 필요:**
-- `registry.assignChannel()` — 채널당 복수 에이전트 허용
-- `router` — 메시지에서 에이전트 이름 파싱 → 매칭
-- `router` — 스레드 내 기존 응답자 확인 로직
-- `/crew assign`, `/crew unassign` — 복수 배정 UX
-- `/crew default {agent}` 서브커맨드 추가
+### Heartbeat & Cron (2026-03-06)
+- HeartbeatRunner (setTimeout 루프 + HEARTBEAT_OK transcript pruning)
+- CronService (croner + JSON store + main/isolated 모드)
+- Active hours, HEARTBEAT.md 게이트, API CRUD
+- 테스트 145개 통과, 커밋: 4bb89f2
 
 ---
 
@@ -55,68 +47,7 @@
 
 ---
 
-## Web UI 사용성 개선
-
-**목표:** 대시보드를 실제로 쓸 만하게
-
-**Sessions 탭:**
-- 세션 상세 영역 너무 좁음 → 넓은 레이아웃 or 확장/축소 지원
-- 메시지 내용 영역 리사이즈 가능하게
-- 세션 ID(UUID) 대신 읽기 쉬운 이름/요약 표시
-- 메시지 말풍선 UI (user/assistant 구분, 마크다운 렌더링)
-- 토큰 사용량 시각화 (input/output 바 차트 등)
-
-**Logs 탭:**
-- 실시간만 보임 → 기존 로그 히스토리 로딩 지원
-- 세션별 로그 필터링 (에이전트/세션 선택해서 관련 로그만)
-- 에러 로그 하이라이트
-
-**전반:**
-- 모바일 반응형
-- 에이전트 카드에 아이콘/상태 표시
-- 세션 검색/필터
-
----
-
-## Heartbeat & Cron
-
-**목표:** 에이전트가 주기적으로 자율 작업 수행 + 예약 작업 실행
-
-**리서치:** `docs/research-heartbeat-cron.md` (OpenClaw 소스 분석)
-
-### Heartbeat
-- `setTimeout` 기반 루프 (setInterval ❌)
-- 에이전트별 주기 설정 (기본 30분)
-- 유저 메시지로 프롬프트 전달 → LLM 응답
-- `HEARTBEAT_OK` 응답 시 transcript pruning (토큰 절약 핵심)
-- `HEARTBEAT.md` 비어있으면 스킵
-- Active hours 지원 (새벽 실행 방지)
-
-### Cron
-- `croner` 라이브러리 (다음 실행 시간 계산만, 타이머는 자체 setTimeout)
-- 스케줄 3종: `at` (일회성), `every` (반복), `cron` (표현식)
-- 실행 모드 2가지:
-  - **main**: 기존 세션에 system event로 끼워넣기 → heartbeat가 처리
-  - **isolated**: 새 세션 생성 → 독립 실행 → 결과 전달
-- JSON 파일 기반 store (재시작 복구)
-- 에러 핸들링: retry, failure alert, stuck 감지
-
-### 구현 순서
-1. HeartbeatRunner (setTimeout + HEARTBEAT_OK + transcript pruning)
-2. Active hours + HEARTBEAT.md 게이트
-3. CronService 기본 (croner + JSON store + armTimer)
-4. main-session cron (system event → heartbeat)
-5. isolated cron (필요 시)
-6. 에러 핸들링 + retry
-
-### 단순화 (OpenClaw 대비)
-- 멀티채널 delivery → 슬랙 단일
-- wake coalesce → 에이전트 수 적어서 불필요
-- stagger → job 적어서 불필요
-
----
-
-## 에이전트 메모리 관리
+## 에이전트 메모리 관리 고도화
 
 **목표:** 에이전트가 대화 내용을 자동으로 기억하고 활용
 
@@ -129,28 +60,3 @@
 - heartbeat 크론 설정 → 주기적 메모리 정리/요약
 - MEMORY.md 초기 콘텐츠 개선 (현재 빈 설명만)
 - 메모리 용량 관리 (오래된 daily 파일 정리 정책)
-
----
-
-## 후보 툴
-
-| 툴 | 설명 | 비고 |
-|---|---|---|
-| `browser` | 브라우저 제어 (JS 렌더 페이지) | web_fetch로 안 되는 SPA 등 |
-| `spawn_agent` | 서브에이전트 위임 | 멀티에이전트 (P3) 연계 |
-| `message` | 슬랙 외 채널로 메시지 전송 | 필요성 확인 후 |
-
----
-
-## 슬래시 커맨드 권한 제어 (P5에서 이관)
-
-**목표:** `/assign`, `/unassign` 등 채널 관리 커맨드를 채널 관리자만 사용 가능하도록 제한
-
-- Slack `conversations.info` 또는 멤버 역할 조회로 권한 확인
-- 옵션 설정으로 on/off 가능 (기본 off = 누구나 사용 가능)
-
----
-
-## 우선순위 미정
-
-실제 사용하면서 필요한 것부터 추가. P6 안정화 + 실사용 피드백 이후 결정.
