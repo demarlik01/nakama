@@ -44,6 +44,37 @@
 
 ---
 
+## 세션 모드 (에이전트별 설정)
+
+**목표:** 에이전트별로 세션 격리 수준을 선택 가능하게
+
+**현재:** 에이전트당 단일 세션 (`Map<agentId, SessionRuntime>`) — 채널/스레드 구분 없이 전부 같은 세션
+
+**설계:**
+```jsonc
+{
+  "id": "dev-agent",
+  "sessionMode": "per-thread"  // "single" | "per-channel" | "per-thread"
+}
+```
+
+| 모드 | 세션 키 | 적합한 케이스 |
+|---|---|---|
+| `single` | `agentId` | 맥락 누적이 중요한 에이전트 (현재 동작 유지) |
+| `per-channel` | `agentId:channelId` | 채널별 격리, 적당한 맥락 유지 |
+| `per-thread` | `agentId:threadTs` | 이슈별 독립 대화, 프라이버시 (기본값) |
+
+**구현:**
+- `SessionManager.sessions` 키를 모드에 따라 분기
+- `per-thread`에서 비스레드 채널 메시지 → `per-channel`로 폴백
+- TTL/GC: `per-thread` 세션은 일정 시간(예: 24h) 미활동 시 정리
+- `per-channel`/`per-thread` 세션도 MEMORY.md 공유 (에이전트 워크스페이스 단위)
+- 세션 영속화: 모드별 디렉토리 구조 (`sessions/{agentId}/` 또는 `sessions/{agentId}/{key}/`)
+- Web UI: Sessions 탭에서 모드별 세션 목록 표시
+- 기본값: `per-thread` (미설정 시)
+
+---
+
 ## 에이전트 메모리 관리 고도화 ✅
 
 **목표:** 에이전트가 대화 내용을 자동으로 기억하고 활용
