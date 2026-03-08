@@ -108,6 +108,50 @@ describe('SlackGateway identity override behavior', () => {
     expect(secondPayload.icon_emoji).toBeUndefined();
   });
 
+  it('uses icon_url when slackIcon is an HTTP URL', async () => {
+    const postMessage = vi.fn(async (_payload: Record<string, unknown>) => ({ ok: true }));
+    const gateway = createGateway(postMessage);
+
+    await gateway.postMessage('C123', 'hello world', undefined, createAgent({
+      slackDisplayName: 'Agent Bot',
+      slackIcon: 'https://example.com/avatar.png',
+    }));
+
+    expect(postMessage).toHaveBeenCalledTimes(1);
+    const payload = postMessage.mock.calls[0]?.[0] as Record<string, unknown>;
+    expect(payload.username).toBe('Agent Bot');
+    expect(payload.icon_url).toBe('https://example.com/avatar.png');
+    expect(payload.icon_emoji).toBeUndefined();
+  });
+
+  it('uses icon_url when slackIcon is an http URL', async () => {
+    const postMessage = vi.fn(async (_payload: Record<string, unknown>) => ({ ok: true }));
+    const gateway = createGateway(postMessage);
+
+    await gateway.postMessage('C123', 'hello world', undefined, createAgent({
+      slackIcon: 'http://example.com/avatar.jpg',
+    }));
+
+    expect(postMessage).toHaveBeenCalledTimes(1);
+    const payload = postMessage.mock.calls[0]?.[0] as Record<string, unknown>;
+    expect(payload.icon_url).toBe('http://example.com/avatar.jpg');
+    expect(payload.icon_emoji).toBeUndefined();
+  });
+
+  it('uses icon_emoji when slackIcon is an emoji shortcode', async () => {
+    const postMessage = vi.fn(async (_payload: Record<string, unknown>) => ({ ok: true }));
+    const gateway = createGateway(postMessage);
+
+    await gateway.postMessage('C123', 'hello world', undefined, createAgent({
+      slackIcon: ':tada:',
+    }));
+
+    expect(postMessage).toHaveBeenCalledTimes(1);
+    const payload = postMessage.mock.calls[0]?.[0] as Record<string, unknown>;
+    expect(payload.icon_emoji).toBe(':tada:');
+    expect(payload.icon_url).toBeUndefined();
+  });
+
   it('drops invalid identity values before sending to Slack', async () => {
     const postMessage = vi.fn(async (_payload: Record<string, unknown>) => ({ ok: true }));
     const gateway = createGateway(postMessage);

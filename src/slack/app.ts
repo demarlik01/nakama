@@ -833,6 +833,7 @@ ${originalMessage.text}`,
     identityOverrides: {
       username?: string;
       icon_emoji?: string;
+      icon_url?: string;
     },
   ): Promise<void> {
     if (!hasIdentityOverrides(identityOverrides)) {
@@ -863,13 +864,14 @@ ${originalMessage.text}`,
   ): {
     username?: string;
     icon_emoji?: string;
+    icon_url?: string;
   } {
     const username = normalizeSlackUsername(agent?.slackDisplayName);
-    const iconEmoji = normalizeSlackIconEmoji(agent?.slackIcon);
+    const iconOverride = resolveSlackIcon(agent?.slackIcon);
 
     return {
       ...(username !== undefined ? { username } : {}),
-      ...(iconEmoji !== undefined ? { icon_emoji: iconEmoji } : {}),
+      ...iconOverride,
     };
   }
 }
@@ -930,8 +932,9 @@ function splitMessage(text: string, maxLength: number): string[] {
 function hasIdentityOverrides(overrides: {
   username?: string;
   icon_emoji?: string;
+  icon_url?: string;
 }): boolean {
-  return overrides.username !== undefined || overrides.icon_emoji !== undefined;
+  return overrides.username !== undefined || overrides.icon_emoji !== undefined || overrides.icon_url !== undefined;
 }
 
 function normalizeSlackUsername(value: string | undefined): string | undefined {
@@ -968,6 +971,34 @@ function normalizeSlackIconEmoji(value: string | undefined): string | undefined 
   }
 
   return trimmed;
+}
+
+function isSlackIconUrl(value: string): boolean {
+  return value.startsWith('http://') || value.startsWith('https://');
+}
+
+function resolveSlackIcon(
+  value: string | undefined,
+): { icon_emoji: string } | { icon_url: string } | Record<string, never> {
+  if (value === undefined) {
+    return {};
+  }
+
+  const trimmed = value.trim();
+  if (trimmed.length === 0) {
+    return {};
+  }
+
+  if (isSlackIconUrl(trimmed)) {
+    return { icon_url: trimmed };
+  }
+
+  const emoji = normalizeSlackIconEmoji(trimmed);
+  if (emoji !== undefined) {
+    return { icon_emoji: emoji };
+  }
+
+  return {};
 }
 
 function isIdentityOverrideRejected(error: unknown): boolean {
