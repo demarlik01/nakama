@@ -27,19 +27,16 @@
 
 ---
 
-## 에이전트 프로필 커스터마이징
+## 에이전트 프로필 커스터마이징 ✅
 
 **목표:** 에이전트마다 고유 프로필 사진 + 이름으로 슬랙에 표시
 
-**현재 상태:**
+**완료:**
 - `slackDisplayName` → `username` 오버라이드 ✅
-- `slackIcon` → `icon_emoji` 오버라이드 ✅ (워크스페이스 이모지만)
-- `icon_url` → ❌ 미지원
-
-**구현 방안:**
-- `slackIcon`이 URL(http/https)이면 `icon_url`, 이모지(`:xxx:`)면 `icon_emoji`로 분기
-- agent.json에 `slackIconUrl` 필드 추가 또는 `slackIcon` 자체를 URL/이모지 겸용으로
-- 에이전트별 아바타 이미지는 워크스페이스에 저장 or 외부 URL
+- `slackIcon` → `icon_emoji` 오버라이드 ✅ (워크스페이스 이모지)
+- `slackIcon` → `icon_url` 오버라이드 ✅ (URL 자동 감지, 대소문자 무관)
+- `slackIcon` 하나로 이모지/URL 겸용 (별도 필드 불필요)
+- 커밋: 7753d5e, fd38fe6
 
 **Slack 앱 설정 필요:**
 - OAuth & Permissions → Bot Token Scopes에 `chat:write.customize` 확인
@@ -47,7 +44,7 @@
 
 ---
 
-## 에이전트 메모리 관리 고도화
+## 에이전트 메모리 관리 고도화 ✅
 
 **목표:** 에이전트가 대화 내용을 자동으로 기억하고 활용
 
@@ -55,8 +52,6 @@
 - ✅ 기본 AGENTS.md 템플릿에 Memory 섹션 추가 (22702a1)
 - ✅ 기존 에이전트(dev-agent, writer-agent) AGENTS.md에도 적용
 - ✅ 시스템 프롬프트에서 MEMORY.md + memory/ 자동 로드 (기존)
-
-**남은 작업:**
-- heartbeat 크론 설정 → 주기적 메모리 정리/요약
-- MEMORY.md 초기 콘텐츠 개선 (현재 빈 설명만)
-- 메모리 용량 관리 (오래된 daily 파일 정리 정책)
+- ✅ AGENTS.md 템플릿에 heartbeat 메모리 정리 지침 추가 (5f2bbdf)
+- ✅ MEMORY.md 초기 콘텐츠 개선 — 구조화된 섹션 포함 (5f2bbdf)
+- Daily 파일은 영구 보관 (토큰 부담 없음, 맥락 추적용)
