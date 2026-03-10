@@ -331,6 +331,94 @@ function normalizeOptionalLimit(value: unknown): number | undefined {
   return parsed;
 }
 
+// --- Cron Job Types & API ---
+
+export type CronScheduleKind = 'at' | 'every' | 'cron';
+
+export type CronSchedule =
+  | { kind: 'at'; at: string }
+  | { kind: 'every'; everyMs: number }
+  | { kind: 'cron'; expr: string; tz?: string };
+
+export interface CronJobState {
+  nextRunAtMs?: number;
+  lastRunAtMs?: number;
+  lastRunStatus?: 'ok' | 'error' | 'skipped';
+  lastError?: string;
+  consecutiveErrors: number;
+}
+
+export interface CronJob {
+  id: string;
+  agentId: string;
+  schedule: CronSchedule;
+  sessionTarget: 'main' | 'isolated';
+  payload: {
+    message: string;
+    model?: string;
+    thinking?: string;
+  };
+  enabled: boolean;
+  deleteAfterRun: boolean;
+  source: 'config' | 'api';
+  deliverTo?: string;
+  state: CronJobState;
+}
+
+export interface CreateCronJobInput {
+  agentId: string;
+  schedule: CronSchedule | string;
+  message: string;
+  model?: string;
+  thinking?: string;
+  sessionTarget?: 'main' | 'isolated';
+  enabled?: boolean;
+  deleteAfterRun?: boolean;
+  deliverTo?: string;
+}
+
+export interface UpdateCronJobInput {
+  schedule?: CronSchedule | string;
+  payload?: { message: string; model?: string; thinking?: string };
+  sessionTarget?: 'main' | 'isolated';
+  enabled?: boolean;
+  deleteAfterRun?: boolean;
+  deliverTo?: string;
+}
+
+export const fetchCronJobs = (agentId?: string) => {
+  const params = agentId ? `?agentId=${encodeURIComponent(agentId)}` : '';
+  return api<{ jobs: CronJob[] }>(`/api/cron${params}`).then((r) => r.jobs ?? []);
+};
+
+export const createCronJob = (data: CreateCronJobInput) =>
+  api<{ job: CronJob }>('/api/cron', {
+    method: 'POST',
+    body: JSON.stringify({
+      agentId: data.agentId,
+      schedule: data.schedule,
+      message: data.message,
+      model: data.model,
+      thinking: data.thinking,
+      sessionTarget: data.sessionTarget ?? 'main',
+      enabled: data.enabled ?? true,
+      deleteAfterRun: data.deleteAfterRun ?? false,
+      deliverTo: data.deliverTo,
+    }),
+  }).then((r) => r.job);
+
+export const updateCronJob = (id: string, patch: UpdateCronJobInput) =>
+  api<{ job: CronJob }>(`/api/cron/${encodeURIComponent(id)}`, {
+    method: 'PATCH',
+    body: JSON.stringify(patch),
+  }).then((r) => r.job);
+
+export const deleteCronJob = (id: string) =>
+  api<{ ok: boolean }>(`/api/cron/${encodeURIComponent(id)}`, { method: 'DELETE' });
+
+export const runCronJob = (id: string) =>
+  api<{ ok: boolean; response?: string }>(`/api/cron/${encodeURIComponent(id)}/run`, { method: 'POST' });
+
 function buildApiErrorMessage(status: number, raw: string, fallback: string): string {
   let detail = raw.trim();
 

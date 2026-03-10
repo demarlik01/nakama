@@ -25,6 +25,12 @@
 - Active hours, HEARTBEAT.md 게이트, API CRUD
 - 테스트 145개 통과, 커밋: 4bb89f2
 
+### Web UI Cron 관리 페이지 (2026-03-11)
+- CronJobs 페이지: 목록, 생성/수정/삭제, 수동 실행, 활성화 토글
+- 에이전트별 필터, cron/every/at 스케줄 타입 지원
+- Dialog 폼 (에이전트, 스케줄, 프롬프트, main/isolated, 모델)
+- 사이드바 + 라우터 등록, shadcn Switch 컴포넌트 추가
+
 ---
 
 ## 에이전트 프로필 커스터마이징 ✅
