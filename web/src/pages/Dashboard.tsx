@@ -1,32 +1,28 @@
 import { useEffect, useState, useCallback } from "react";
 import { useNavigate } from "react-router-dom";
-import { type Agent, fetchAgents } from "@/lib/api";
+import { type Agent, fetchAgents, fetchHealth, type HealthInfo } from "@/lib/api";
 import { useEventSource, type SSEMessage } from "@/hooks/useEventSource";
 import {
   Card,
   CardHeader,
   CardTitle,
-  CardDescription,
   CardContent,
 } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { toast } from "sonner";
-
-const statusVariant: Record<string, "default" | "secondary" | "destructive" | "outline"> = {
-  running: "default",
-  idle: "secondary",
-  disabled: "outline",
-  error: "destructive",
-};
+import { Bot, Radio, Activity, Clock } from "lucide-react";
 
 export function Dashboard() {
   const [agents, setAgents] = useState<Agent[]>([]);
+  const [health, setHealth] = useState<HealthInfo | null>(null);
   const [loading, setLoading] = useState(true);
   const navigate = useNavigate();
 
   useEffect(() => {
-    fetchAgents()
-      .then(setAgents)
+    Promise.all([
+      fetchAgents().then(setAgents),
+      fetchHealth().then(setHealth).catch(() => null),
+    ])
       .catch(console.error)
       .finally(() => setLoading(false));
   }, []);
@@ -64,74 +60,130 @@ export function Dashboard() {
 
   if (loading) return <div className="text-muted-foreground">Loading...</div>;
 
+  const activeAgents = agents.filter((a) => a.enabled);
+  const runningAgents = agents.filter((a) => a.status === "running");
+  const totalCron = agents.reduce((sum, a) => sum + (a.cron?.length ?? 0), 0);
+
   return (
     <div>
-      <div className="flex items-center justify-between mb-6">
-        <h1 className="text-2xl font-bold">Agents</h1>
-        <span className="text-sm text-muted-foreground">
-          {agents.filter((a) => a.enabled).length} active / {agents.length} total
-        </span>
-      </div>
-      {agents.length === 0 ? (
-        <p className="text-muted-foreground">No agents configured.</p>
-      ) : (
-        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-          {agents.map((agent) => (
-            <Card
-              key={agent.id}
-              className={`cursor-pointer hover:border-primary/50 transition-colors ${
-                !agent.enabled ? "opacity-50" : ""
-              }`}
-              onClick={() => navigate(`/agents/${agent.id}`)}
+      <h1 className="text-2xl font-bold mb-6">Overview</h1>
+
+      {/* Summary Cards */}
+      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4 mb-8">
+        <Card
+          className="cursor-pointer hover:border-primary/50 transition-colors"
+          onClick={() => navigate("/agents")}
+        >
+          <CardHeader className="flex flex-row items-center justify-between pb-2">
+            <CardTitle className="text-sm font-medium text-muted-foreground">
+              Total Agents
+            </CardTitle>
+            <Bot className="h-4 w-4 text-muted-foreground" />
+          </CardHeader>
+          <CardContent>
+            <div className="text-2xl font-bold">{agents.length}</div>
+            <p className="text-xs text-muted-foreground mt-1">
+              {activeAgents.length} active
+            </p>
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader className="flex flex-row items-center justify-between pb-2">
+            <CardTitle className="text-sm font-medium text-muted-foreground">
+              Running Now
+            </CardTitle>
+            <Radio className="h-4 w-4 text-muted-foreground" />
+          </CardHeader>
+          <CardContent>
+            <div className="text-2xl font-bold">{runningAgents.length}</div>
+            <p className="text-xs text-muted-foreground mt-1">
+              active sessions
+            </p>
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader className="flex flex-row items-center justify-between pb-2">
+            <CardTitle className="text-sm font-medium text-muted-foreground">
+              Cron Jobs
+            </CardTitle>
+            <Clock className="h-4 w-4 text-muted-foreground" />
+          </CardHeader>
+          <CardContent>
+            <div className="text-2xl font-bold">{totalCron}</div>
+            <p className="text-xs text-muted-foreground mt-1">scheduled</p>
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader className="flex flex-row items-center justify-between pb-2">
+            <CardTitle className="text-sm font-medium text-muted-foreground">
+              System Health
+            </CardTitle>
+            <Activity className="h-4 w-4 text-muted-foreground" />
+          </CardHeader>
+          <CardContent>
+            <Badge
+              variant={health?.status === "ok" ? "default" : "destructive"}
             >
-              <CardHeader className="pb-2">
-                <div className="flex items-center justify-between">
-                  <CardTitle className="text-base">{agent.displayName}</CardTitle>
-                  <div className="flex items-center gap-1.5">
-                    {!agent.enabled && (
-                      <Badge variant="outline" className="text-xs">
-                        disabled
-                      </Badge>
-                    )}
-                    <Badge variant={statusVariant[agent.status] ?? "secondary"}>
-                      {agent.status}
-                    </Badge>
+              {health?.status === "ok" ? "Healthy" : "Error"}
+            </Badge>
+            {health?.uptimeSec != null && (
+              <p className="text-xs text-muted-foreground mt-1">
+                Uptime: {formatUptime(health.uptimeSec)}
+              </p>
+            )}
+          </CardContent>
+        </Card>
+      </div>
+
+      {/* Quick Agent Status */}
+      {agents.length > 0 && (
+        <div>
+          <h2 className="text-lg font-semibold mb-3">Agent Status</h2>
+          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+            {agents.map((agent) => (
+              <Card
+                key={agent.id}
+                className="cursor-pointer hover:border-primary/50 transition-colors"
+                onClick={() => navigate(`/agents/${agent.id}`)}
+              >
+                <CardContent className="flex items-center justify-between py-3 px-4">
+                  <div className="flex items-center gap-3">
+                    <div
+                      className={`h-2 w-2 rounded-full ${
+                        agent.status === "running"
+                          ? "bg-green-500"
+                          : agent.status === "error"
+                            ? "bg-red-500"
+                            : agent.enabled
+                              ? "bg-yellow-500"
+                              : "bg-gray-500"
+                      }`}
+                    />
+                    <span className="text-sm font-medium">
+                      {agent.displayName}
+                    </span>
                   </div>
-                </div>
-                <CardDescription className="line-clamp-2">
-                  {agent.description || "No description"}
-                </CardDescription>
-              </CardHeader>
-              <CardContent className="text-xs text-muted-foreground space-y-2">
-                <div className="flex items-center justify-between">
-                  <span className="font-mono text-[11px] bg-muted px-1.5 py-0.5 rounded">
-                    {agent.model}
+                  <span className="text-xs text-muted-foreground font-mono">
+                    {agent.status}
                   </span>
-                </div>
-                <div className="flex flex-wrap gap-x-3 gap-y-1">
-                  <span>Ch: {Object.keys(agent.channels ?? {}).length}</span>
-                  <span>Users: {agent.slackUsers?.length ?? 0}</span>
-                  {agent.heartbeat?.enabled && (
-                    <span className="text-green-500">
-                      ♥ {agent.heartbeat.intervalMin}m
-                    </span>
-                  )}
-                  {agent.cron && agent.cron.length > 0 && (
-                    <span className="text-blue-400">
-                      ⏱ {agent.cron.length} cron
-                    </span>
-                  )}
-                </div>
-                {agent.limits?.dailyTokenLimit && (
-                  <div className="text-[11px]">
-                    Token limit: {(agent.limits.dailyTokenLimit / 1000).toFixed(0)}k/day
-                  </div>
-                )}
-              </CardContent>
-            </Card>
-          ))}
+                </CardContent>
+              </Card>
+            ))}
+          </div>
         </div>
       )}
     </div>
   );
+}
+
+function formatUptime(seconds: number): string {
+  const d = Math.floor(seconds / 86400);
+  const h = Math.floor((seconds % 86400) / 3600);
+  const m = Math.floor((seconds % 3600) / 60);
+  if (d > 0) return `${d}d ${h}h`;
+  if (h > 0) return `${h}h ${m}m`;
+  return `${m}m`;
 }
