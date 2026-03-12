@@ -520,80 +520,37 @@ export function AgentDetail() {
           {sessions.length === 0 ? (
             <p className="text-muted-foreground">No persisted sessions yet.</p>
           ) : (
-            <div className="grid gap-4 lg:grid-cols-[280px_1fr]">
-              <div className="space-y-2 max-h-[520px] overflow-y-auto pr-1">
-                {sessions.map((session) => (
-                  <Card
-                    key={session.sessionId}
-                    className={`cursor-pointer transition-colors ${
-                      selectedSessionId === session.sessionId
-                        ? "border-primary"
-                        : "hover:border-primary/50"
-                    }`}
-                    onClick={() => handleSelectSession(session.sessionId)}
-                  >
-                    <CardHeader className="p-3 pb-2">
-                      <CardTitle className="text-sm font-medium truncate">
-                        {session.fileName}
+            <div className="space-y-2">
+              {sessions.map((session) => (
+                <Card
+                  key={session.sessionId}
+                  role="button"
+                  tabIndex={0}
+                  className="cursor-pointer hover:border-primary/50 transition-colors"
+                  onClick={() => navigate(`/sessions/${encodeURIComponent(id)}/${encodeURIComponent(session.sessionId)}`)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter" || e.key === " ") {
+                      e.preventDefault();
+                      navigate(`/sessions/${encodeURIComponent(id)}/${encodeURIComponent(session.sessionId)}`);
+                    }
+                  }}
+                >
+                  <CardHeader className="p-4 pb-2">
+                    <div className="flex items-center justify-between">
+                      <CardTitle className="text-sm font-mono truncate">
+                        {session.sessionId}
                       </CardTitle>
-                    </CardHeader>
-                    <CardContent className="p-3 pt-0 text-xs text-muted-foreground space-y-1">
-                      <div>{session.messageCount} messages</div>
-                      <div>{new Date(session.createdAt).toLocaleString()}</div>
-                    </CardContent>
-                  </Card>
-                ))}
-              </div>
-
-              <Card className="min-h-[320px]">
-                <CardHeader className="pb-3">
-                  <CardTitle className="text-base">
-                    {selectedSession ? selectedSession.fileName : "Session timeline"}
-                  </CardTitle>
-                  {selectedSessionUsage ? (
-                    <div className="text-xs text-muted-foreground flex flex-wrap items-center gap-3">
-                      <span>Input: {selectedSessionUsage.totalInputTokens.toLocaleString()}</span>
-                      <span>Output: {selectedSessionUsage.totalOutputTokens.toLocaleString()}</span>
-                      <span>Total: {selectedSessionUsage.totalTokens.toLocaleString()}</span>
-                      <span>Records: {selectedSessionUsage.recordCount.toLocaleString()}</span>
+                      <Badge variant="secondary" className="text-xs shrink-0">
+                        {session.messageCount} messages
+                      </Badge>
                     </div>
-                  ) : null}
-                </CardHeader>
-                <CardContent>
-                  {!selectedSessionId ? (
-                    <p className="text-sm text-muted-foreground">
-                      Select a session to view messages.
-                    </p>
-                  ) : loadingSession ? (
-                    <p className="text-sm text-muted-foreground">Loading session...</p>
-                  ) : !selectedSession ? (
-                    <p className="text-sm text-muted-foreground">Session not found.</p>
-                  ) : sessionMessages.length === 0 ? (
-                    <p className="text-sm text-muted-foreground">No messages in this session.</p>
-                  ) : (
-                    <div ref={sessionTimelineRef} className="space-y-2 max-h-[460px] overflow-y-auto pr-1">
-                      {sessionMessages.map((message, index) => (
-                        <div
-                          key={`${message.timestamp}-${index}`}
-                          className={`rounded-lg border p-3 text-sm ${
-                            message.role === "user"
-                              ? "bg-muted/50"
-                              : "bg-primary/10"
-                          }`}
-                        >
-                          <div className="flex items-center justify-between gap-2 mb-1">
-                            <span className="font-medium">{message.role}</span>
-                            <span className="text-xs text-muted-foreground">
-                              {formatSessionTimestamp(message.timestamp, timestampFormatter)}
-                            </span>
-                          </div>
-                          <div className="whitespace-pre-wrap break-words">{message.content}</div>
-                        </div>
-                      ))}
-                    </div>
-                  )}
-                </CardContent>
-              </Card>
+                  </CardHeader>
+                  <CardContent className="p-4 pt-0 text-xs text-muted-foreground flex items-center gap-4">
+                    <span>Created: {new Date(session.createdAt).toLocaleString()}</span>
+                    <span>Modified: {new Date(session.modifiedAt).toLocaleString()}</span>
+                  </CardContent>
+                </Card>
+              ))}
             </div>
           )}
         </TabsContent>
