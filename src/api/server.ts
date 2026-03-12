@@ -13,6 +13,7 @@ import type { UsageTracker } from '../core/usage.js';
 import { createLogger, type Logger } from '../utils/logger.js';
 import { createAgentsRouter } from './routes/agents.js';
 import { createCronRouter } from './routes/cron.js';
+import { listPersistedSessions } from '../core/session-files.js';
 import { SSEManager } from './sse.js';
 import { createBasicAuthMiddleware } from './middleware/auth.js';
 import type { CronService } from '../core/cron.js';
@@ -170,6 +171,97 @@ export class ApiServer {
     this.app.get('/api/sessions', (_req, res) => {
       const sessions = this.deps.sessionManager.getAllSessions();
       res.json(sessions);
+    });
+
+    // --- All sessions (persisted + active) endpoint ---
+    this.app.get('/api/sessions/all', async (req, res) => {
+      try {
+        const agentFilter = typeof req.query.agent === 'string' ? req.query.agent : undefined;
+        const agents = this.deps.registry.getAll();
+        const filteredAgents = agentFilter
+          ? agents.filter((a) => a.id === agentFilter)
+          : agents;
+
+        interface SessionListItem {
+          sessionId: string;
+          agentId: string;
+          status: 'active' | 'archived';
+          messageCount: number;
+          createdAt: string;
+          lastActivityAt: string;
+        }
+
+        const activeSessions = this.deps.sessionManager.getAllSessions();
+        const activeSessionIds = new Set(
+          activeSessions
+            .filter((s) => s.sessionId !== undefined)
+            .map((s) => s.sessionId as string),
+        );
+
+        const results: SessionListItem[] = [];
+
+        // Add active sessions
+        for (const session of activeSessions) {
+          if (agentFilter && session.agentId !== agentFilter) continue;
+          results.push({
+            sessionId: session.sessionId ?? session.sessionKey,
+            agentId: session.agentId,
+            status: 'active',
+            messageCount: 0, // Active sessions don't track message count in SessionState
+            createdAt: session.lastActivityAt instanceof Date
+              ? session.lastActivityAt.toISOString()
+              : String(session.lastActivityAt),
+            lastActivityAt: session.lastActivityAt instanceof Date
+              ? session.lastActivityAt.toISOString()
+              : String(session.lastActivityAt),
+          });
+        }
+
+        // Add persisted sessions from each agent
+        const persistedPromises = filteredAgents.map(async (agent) => {
+          try {
+            const persisted = await listPersistedSessions(agent);
+            for (const session of persisted) {
+              // If this persisted session is also active, update the active entry's messageCount
+              if (activeSessionIds.has(session.sessionId)) {
+                const activeEntry = results.find(
+                  (r) => r.sessionId === session.sessionId && r.status === 'active',
+                );
+                if (activeEntry) {
+                  activeEntry.messageCount = session.messageCount;
+                  activeEntry.createdAt = session.createdAt.toISOString();
+                }
+                continue;
+              }
+              results.push({
+                sessionId: session.sessionId,
+                agentId: agent.id,
+                status: 'archived',
+                messageCount: session.messageCount,
+                createdAt: session.createdAt.toISOString(),
+                lastActivityAt: session.modifiedAt.toISOString(),
+              });
+            }
+          } catch {
+            // Skip agents whose session directory is inaccessible
+          }
+        });
+
+        await Promise.all(persistedPromises);
+
+        // Sort: active first, then by lastActivityAt descending
+        results.sort((a, b) => {
+          if (a.status !== b.status) return a.status === 'active' ? -1 : 1;
+          return new Date(b.lastActivityAt).getTime() - new Date(a.lastActivityAt).getTime();
+        });
+
+        res.json(results);
+      } catch (error) {
+        this.logger.error('Failed to list all sessions', {
+          error: error instanceof Error ? error.message : String(error),
+        });
+        res.status(500).json({ error: 'Failed to list sessions' });
+      }
     });
 
     this.app.use(

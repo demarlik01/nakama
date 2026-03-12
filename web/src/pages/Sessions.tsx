@@ -1,8 +1,15 @@
-import { useEffect, useState, useCallback } from "react";
+import { useEffect, useState, useCallback, useMemo } from "react";
 import { useNavigate } from "react-router-dom";
 import { useEventSource, type SSEMessage } from "@/hooks/useEventSource";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import {
   Table,
   TableBody,
@@ -12,17 +19,7 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { RefreshCw, MessageSquare, Clock } from "lucide-react";
-
-interface SessionInfo {
-  agentId: string;
-  sessionKey?: string;
-  sessionId?: string;
-  threadTs?: string;
-  status: string;
-  queueDepth: number;
-  lastActivityAt: string;
-  messages?: { role: string; preview: string; timestamp: string }[];
-}
+import { fetchAllSessions, fetchAgents, type SessionListItem } from "@/lib/api";
 
 function formatRelativeTime(dateStr: string): string {
   const now = Date.now();
@@ -39,125 +36,107 @@ function formatRelativeTime(dateStr: string): string {
   return `${days}d ago`;
 }
 
-function StatusDot({ status }: { status: string }) {
-  const color =
-    status === "running"
-      ? "bg-green-500"
-      : status === "error"
-      ? "bg-red-500"
-      : "bg-muted-foreground";
-  return <span className={`inline-block size-2 rounded-full ${color}`} />;
+function formatDate(dateStr: string): string {
+  const date = new Date(dateStr);
+  const month = date.getMonth() + 1;
+  const day = date.getDate();
+  const hours = date.getHours();
+  const minutes = date.getMinutes().toString().padStart(2, "0");
+  const ampm = hours >= 12 ? "pm" : "am";
+  const h12 = hours % 12 || 12;
+  return `${month}/${day} ${h12}:${minutes}${ampm}`;
 }
 
 export function Sessions() {
-  const [sessions, setSessions] = useState<SessionInfo[]>([]);
+  const [sessions, setSessions] = useState<SessionListItem[]>([]);
+  const [agents, setAgents] = useState<string[]>([]);
+  const [agentFilter, setAgentFilter] = useState<string>("all");
   const [loading, setLoading] = useState(true);
   const navigate = useNavigate();
 
-  const loadSessions = useCallback(() => {
+  const loadData = useCallback(async () => {
     setLoading(true);
-    fetch("/api/sessions")
-      .then((r) => r.json())
-      .then((data: SessionInfo[]) => {
-        setSessions(
-          data.map((s) => ({
-            ...s,
-            messages: s.messages ?? [],
-          }))
-        );
-      })
-      .catch(console.error)
-      .finally(() => setLoading(false));
+    try {
+      const [sessionData, agentData] = await Promise.all([
+        fetchAllSessions(),
+        fetchAgents(),
+      ]);
+      setSessions(sessionData);
+      setAgents(agentData.map((a) => a.id));
+    } catch (error) {
+      console.error("Failed to load sessions:", error);
+    } finally {
+      setLoading(false);
+    }
   }, []);
 
   useEffect(() => {
-    loadSessions();
-  }, [loadSessions]);
+    void loadData();
+  }, [loadData]);
 
-  // Match session by sessionKey first, fallback to agentId
-  const matchSession = useCallback(
-    (s: SessionInfo, agentId: string, sessionKey?: string) =>
-      sessionKey ? s.sessionKey === sessionKey : s.agentId === agentId,
-    []
-  );
-
-  // SSE handler to keep list up-to-date
+  // SSE handler — update active session statuses in real-time
   const handleSSE = useCallback((event: SSEMessage) => {
     const { type, data } = event;
-    const agentId = data.agentId as string;
-    const sessionKey = data.sessionKey as string | undefined;
+    const agentId = data.agentId as string | undefined;
 
-    if (type === "session:start") {
+    if (type === "session:start" && agentId) {
       setSessions((prev) => {
-        if (prev.find((s) => matchSession(s, agentId, sessionKey))) return prev;
+        const sessionId = (data.sessionId as string) ?? (data.sessionKey as string) ?? agentId;
+        if (prev.find((s) => s.sessionId === sessionId && s.status === "active")) return prev;
         return [
-          ...prev,
           {
+            sessionId,
             agentId,
-            sessionKey: sessionKey,
-            status: "idle",
-            threadTs: data.threadTs as string | undefined,
-            queueDepth: 0,
-            lastActivityAt:
-              (data.timestamp as string) ?? new Date().toISOString(),
-            messages: [],
+            status: "active" as const,
+            messageCount: 0,
+            createdAt: (data.timestamp as string) ?? new Date().toISOString(),
+            lastActivityAt: (data.timestamp as string) ?? new Date().toISOString(),
           },
+          ...prev,
         ];
       });
     }
 
-    if (type === "session:end") {
-      setSessions((prev) => prev.filter((s) => !matchSession(s, agentId, sessionKey)));
-    }
-
-    if (type === "agent:status") {
+    if (type === "session:end" && agentId) {
+      // Move to archived instead of removing
       setSessions((prev) =>
         prev.map((s) =>
-          matchSession(s, agentId, sessionKey)
-            ? {
-                ...s,
-                status: data.status as string,
-                lastActivityAt:
-                  (data.timestamp as string) ?? s.lastActivityAt,
-              }
+          s.agentId === agentId && s.status === "active"
+            ? { ...s, status: "archived" as const }
             : s
         )
       );
     }
 
-    if (type === "session:message") {
+    if (type === "session:message" && agentId) {
       setSessions((prev) =>
         prev.map((s) =>
-          matchSession(s, agentId, sessionKey)
+          s.agentId === agentId && s.status === "active"
             ? {
                 ...s,
-                lastActivityAt:
-                  (data.timestamp as string) ?? new Date().toISOString(),
-                messages: [
-                  ...(s.messages ?? []),
-                  {
-                    role: data.role as string,
-                    preview: data.preview as string,
-                    timestamp:
-                      (data.timestamp as string) ?? new Date().toISOString(),
-                  },
-                ],
+                messageCount: s.messageCount + 1,
+                lastActivityAt: (data.timestamp as string) ?? new Date().toISOString(),
               }
             : s
         )
       );
     }
-  }, [matchSession]);
+  }, []);
 
   const { connected } = useEventSource({
     url: "/api/events",
     onMessage: handleSSE,
   });
 
-  const handleRowClick = (session: SessionInfo) => {
-    if (session.sessionId) {
-      navigate(`/sessions/${encodeURIComponent(session.agentId)}/${encodeURIComponent(session.sessionId)}`);
-    }
+  const filteredSessions = useMemo(() => {
+    if (agentFilter === "all") return sessions;
+    return sessions.filter((s) => s.agentId === agentFilter);
+  }, [sessions, agentFilter]);
+
+  const handleRowClick = (session: SessionListItem) => {
+    navigate(
+      `/sessions/${encodeURIComponent(session.agentId)}/${encodeURIComponent(session.sessionId)}`
+    );
   };
 
   return (
@@ -177,7 +156,7 @@ export function Sessions() {
           <Button
             variant="outline"
             size="icon"
-            onClick={loadSessions}
+            onClick={() => void loadData()}
             aria-label="Refresh sessions"
           >
             <RefreshCw className="size-4" />
@@ -185,81 +164,99 @@ export function Sessions() {
         </div>
       </div>
 
+      {/* Agent Filter */}
+      <div className="flex items-center gap-2">
+        <Select value={agentFilter} onValueChange={setAgentFilter}>
+          <SelectTrigger className="w-[200px]">
+            <SelectValue placeholder="Filter by agent" />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="all">All Agents</SelectItem>
+            {agents.map((id) => (
+              <SelectItem key={id} value={id}>
+                {id}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+        <span className="text-sm text-muted-foreground">
+          {filteredSessions.length} session{filteredSessions.length !== 1 ? "s" : ""}
+        </span>
+      </div>
+
       {/* Table */}
       {loading ? (
         <div className="flex items-center justify-center h-48 text-muted-foreground text-sm">
           Loading sessions…
         </div>
-      ) : sessions.length === 0 ? (
+      ) : filteredSessions.length === 0 ? (
         <div className="flex flex-col items-center justify-center h-48 gap-2 text-muted-foreground border border-border rounded-xl">
           <MessageSquare className="size-8 opacity-50" />
-          <p className="text-sm">No active sessions</p>
-          <p className="text-xs">Sessions will appear here when agents are active</p>
+          <p className="text-sm">No sessions found</p>
+          <p className="text-xs">
+            {agentFilter !== "all"
+              ? "Try selecting a different agent or 'All Agents'"
+              : "Sessions will appear here when agents are active"}
+          </p>
         </div>
       ) : (
         <div className="border border-border rounded-xl overflow-hidden">
           <Table>
             <TableHeader>
               <TableRow>
-                <TableHead>Agent ID</TableHead>
+                <TableHead>Session ID</TableHead>
+                <TableHead>Agent</TableHead>
                 <TableHead>Status</TableHead>
                 <TableHead className="text-center">Messages</TableHead>
-                <TableHead className="text-center">Queue</TableHead>
+                <TableHead>Created</TableHead>
                 <TableHead>Last Activity</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
-              {sessions.map((session) => (
+              {filteredSessions.map((session) => (
                 <TableRow
-                  key={session.sessionKey ?? session.agentId}
-                  role={session.sessionId ? "button" : undefined}
-                  tabIndex={session.sessionId ? 0 : undefined}
-                  className={
-                    session.sessionId
-                      ? "cursor-pointer hover:bg-muted/50 transition-colors"
-                      : "opacity-60"
-                  }
+                  key={`${session.agentId}-${session.sessionId}`}
+                  role="button"
+                  tabIndex={0}
+                  className="cursor-pointer hover:bg-muted/50 transition-colors"
                   onClick={() => handleRowClick(session)}
                   onKeyDown={(e) => {
-                    if ((e.key === "Enter" || e.key === " ") && session.sessionId) {
+                    if (e.key === "Enter" || e.key === " ") {
                       e.preventDefault();
                       handleRowClick(session);
                     }
                   }}
                 >
                   <TableCell>
-                    <div className="flex items-center gap-2">
-                      <StatusDot status={session.status} />
-                      <span className="font-mono text-sm">{session.agentId}</span>
-                    </div>
-                    {session.sessionKey && (
-                      <p className="text-xs text-muted-foreground mt-0.5 truncate max-w-[300px] font-mono">
-                        {session.sessionKey}
-                      </p>
-                    )}
-                  </TableCell>
-                  <TableCell>
-                    <Badge
-                      variant={
-                        session.status === "running"
-                          ? "default"
-                          : session.status === "error"
-                          ? "destructive"
-                          : "secondary"
-                      }
-                      className="text-xs"
+                    <span
+                      className="font-mono text-sm"
+                      title={session.sessionId}
                     >
-                      {session.status}
-                    </Badge>
-                  </TableCell>
-                  <TableCell className="text-center">
-                    <span className="text-sm tabular-nums">
-                      {session.messages?.length ?? 0}
+                      {session.sessionId.slice(0, 8)}…
                     </span>
                   </TableCell>
+                  <TableCell>
+                    <span className="text-sm">{session.agentId}</span>
+                  </TableCell>
+                  <TableCell>
+                    {session.status === "active" ? (
+                      <Badge variant="default" className="text-xs">
+                        <span className="mr-1">🟢</span>active
+                      </Badge>
+                    ) : (
+                      <Badge variant="secondary" className="text-xs">
+                        archived
+                      </Badge>
+                    )}
+                  </TableCell>
                   <TableCell className="text-center">
                     <span className="text-sm tabular-nums">
-                      {session.queueDepth}
+                      {session.messageCount}
+                    </span>
+                  </TableCell>
+                  <TableCell>
+                    <span className="text-sm text-muted-foreground">
+                      {formatDate(session.createdAt)}
                     </span>
                   </TableCell>
                   <TableCell>

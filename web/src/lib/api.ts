@@ -170,6 +170,18 @@ export const updateAgentsMd = (id: string, content: string) =>
     method: "PATCH",
     body: JSON.stringify({ agentsMd: content }),
   }).then(() => undefined);
+export interface SessionListItem {
+  sessionId: string;
+  agentId: string;
+  status: 'active' | 'archived';
+  messageCount: number;
+  createdAt: string;
+  lastActivityAt: string;
+}
+
+export const fetchAllSessions = (agent?: string) =>
+  api<SessionListItem[]>(`/api/sessions/all${agent ? `?agent=${encodeURIComponent(agent)}` : ''}`);
+
 export const fetchAgentSessions = (id: string) =>
   api<{ sessions: AgentSessionSummary[] }>(`/api/agents/${encodeURIComponent(id)}/sessions`)
     .then((r) => r.sessions ?? []);
