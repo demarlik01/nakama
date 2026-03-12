@@ -114,7 +114,7 @@ export function SessionDetail() {
   }
 
   return (
-    <div className="flex flex-col h-full">
+    <div className="flex flex-col h-[calc(100vh-4rem)]">
       {/* Header */}
       <div className="shrink-0 mb-4 space-y-1">
         <div className="flex items-center gap-3">
