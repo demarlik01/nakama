@@ -1,5 +1,5 @@
 import { Link, Outlet, useLocation } from "react-router-dom";
-import { useEffect, useState } from "react";
+import { useEffect, useState, useCallback } from "react";
 import { cn } from "@/lib/utils";
 import { Separator } from "@/components/ui/separator";
 import { Badge } from "@/components/ui/badge";
@@ -13,6 +13,10 @@ import {
   ChevronDown,
   ChevronRight,
   Zap,
+  PanelLeftClose,
+  PanelLeftOpen,
+  Sun,
+  Moon,
 } from "lucide-react";
 import { fetchHealth, type HealthInfo } from "@/lib/api";
 
@@ -76,10 +80,57 @@ function saveCollapsedState(state: Record<string, boolean>) {
   }
 }
 
+function loadSidebarOpen(): boolean {
+  try {
+    const raw = localStorage.getItem("sidebar-open");
+    if (raw !== null) return raw === "true";
+  } catch {
+    // ignore
+  }
+  return true;
+}
+
+function saveSidebarOpen(open: boolean) {
+  try {
+    localStorage.setItem("sidebar-open", String(open));
+  } catch {
+    // ignore
+  }
+}
+
+function loadTheme(): "dark" | "light" {
+  try {
+    const raw = localStorage.getItem("theme");
+    if (raw === "light" || raw === "dark") return raw;
+  } catch {
+    // ignore
+  }
+  return "dark";
+}
+
+function applyTheme(theme: "dark" | "light") {
+  if (theme === "dark") {
+    document.documentElement.classList.add("dark");
+  } else {
+    document.documentElement.classList.remove("dark");
+  }
+  try {
+    localStorage.setItem("theme", theme);
+  } catch {
+    // ignore
+  }
+}
+
 export function Layout() {
   const location = useLocation();
   const [collapsed, setCollapsed] = useState<Record<string, boolean>>(loadCollapsedState);
   const [health, setHealth] = useState<HealthInfo | null>(null);
+  const [sidebarOpen, setSidebarOpen] = useState(loadSidebarOpen);
+  const [theme, setTheme] = useState<"dark" | "light">(loadTheme);
+
+  useEffect(() => {
+    applyTheme(theme);
+  }, [theme]);
 
   useEffect(() => {
     fetchHealth()
@@ -95,6 +146,18 @@ export function Layout() {
     });
   };
 
+  const toggleSidebar = useCallback(() => {
+    setSidebarOpen((prev) => {
+      const next = !prev;
+      saveSidebarOpen(next);
+      return next;
+    });
+  }, []);
+
+  const toggleTheme = useCallback(() => {
+    setTheme((prev) => (prev === "dark" ? "light" : "dark"));
+  }, []);
+
   const isActive = (to: string) => {
     if (to === "/") return location.pathname === "/";
     return location.pathname.startsWith(to);
@@ -103,82 +166,127 @@ export function Layout() {
   const healthOk = health?.status === "ok";
 
   return (
-    <div className="flex h-screen bg-background text-foreground">
-      {/* Sidebar */}
-      <aside className="w-56 shrink-0 border-r border-border bg-sidebar-background flex flex-col">
-        {/* Header */}
-        <div className="p-4">
-          <div className="flex items-center gap-2 font-bold text-lg">
-            <Zap className="h-5 w-5 text-yellow-500" />
-            Agent for Work
-          </div>
-          <div className="flex items-center gap-2 mt-2">
-            <Badge variant="outline" className="text-[10px] px-1.5 py-0">
-              v0.1.0
-            </Badge>
-            <Badge
-              variant={health ? (healthOk ? "default" : "destructive") : "outline"}
-              className="text-[10px] px-1.5 py-0"
-            >
-              {health ? (healthOk ? "Healthy" : "Error") : "…"}
-            </Badge>
-          </div>
+    <div className="flex h-screen flex-col bg-background text-foreground">
+      {/* Top Header Bar */}
+      <header className="h-12 shrink-0 border-b border-border bg-sidebar-background flex items-center px-3 gap-3">
+        {/* Left: sidebar toggle + logo */}
+        <button
+          type="button"
+          onClick={toggleSidebar}
+          className="p-1.5 rounded-md hover:bg-sidebar-accent/50 text-muted-foreground hover:text-foreground transition-colors"
+          title={sidebarOpen ? "Collapse sidebar" : "Expand sidebar"}
+        >
+          {sidebarOpen ? (
+            <PanelLeftClose className="h-4 w-4" />
+          ) : (
+            <PanelLeftOpen className="h-4 w-4" />
+          )}
+        </button>
+        <div className="flex items-center gap-2 font-bold text-sm">
+          <Zap className="h-4 w-4 text-yellow-500" />
+          <span>Agent for Work</span>
         </div>
-        <Separator />
 
-        {/* Navigation */}
-        <nav className="flex-1 p-2 space-y-1 overflow-y-auto">
-          {categories.map((cat) => {
-            const isCollapsed = !!collapsed[cat.key];
-            return (
-              <div key={cat.key}>
-                <button
-                  type="button"
-                  onClick={() => toggleCategory(cat.key)}
-                  aria-expanded={!isCollapsed}
-                  aria-controls={`nav-${cat.key}`}
-                  className="flex items-center justify-between w-full px-3 py-1.5 text-xs font-semibold uppercase tracking-wider text-muted-foreground hover:text-foreground transition-colors rounded-md"
-                >
-                  <span>{cat.label}</span>
-                  {isCollapsed ? (
-                    <ChevronRight className="h-3.5 w-3.5" />
-                  ) : (
-                    <ChevronDown className="h-3.5 w-3.5" />
+        {/* Right: version + health + theme toggle */}
+        <div className="ml-auto flex items-center gap-2">
+          <Badge variant="outline" className="text-[10px] px-1.5 py-0">
+            v0.1.0
+          </Badge>
+          <Badge
+            variant={health ? (healthOk ? "default" : "destructive") : "outline"}
+            className="text-[10px] px-1.5 py-0"
+          >
+            {health ? (healthOk ? "Healthy" : "Error") : "…"}
+          </Badge>
+          <button
+            type="button"
+            onClick={toggleTheme}
+            className="p-1.5 rounded-md hover:bg-sidebar-accent/50 text-muted-foreground hover:text-foreground transition-colors"
+            title={theme === "dark" ? "Switch to light mode" : "Switch to dark mode"}
+          >
+            {theme === "dark" ? (
+              <Sun className="h-4 w-4" />
+            ) : (
+              <Moon className="h-4 w-4" />
+            )}
+          </button>
+        </div>
+      </header>
+
+      {/* Body: Sidebar + Main */}
+      <div className="flex-1 min-h-0 flex">
+        {/* Sidebar */}
+        <aside
+          className={cn(
+            "shrink-0 border-r border-border bg-sidebar-background flex flex-col transition-[width] duration-200",
+            sidebarOpen ? "w-56" : "w-14"
+          )}
+        >
+          {/* Navigation */}
+          <nav className="flex-1 p-2 space-y-1 overflow-y-auto">
+            {categories.map((cat) => {
+              const isCollapsed = !!collapsed[cat.key];
+              return (
+                <div key={cat.key}>
+                  {/* Category header: hidden when sidebar is collapsed */}
+                  {sidebarOpen && (
+                    <button
+                      type="button"
+                      onClick={() => toggleCategory(cat.key)}
+                      aria-expanded={!isCollapsed}
+                      aria-controls={`nav-${cat.key}`}
+                      className="flex items-center justify-between w-full px-3 py-1.5 text-xs font-semibold uppercase tracking-wider text-muted-foreground hover:text-foreground transition-colors rounded-md"
+                    >
+                      <span>{cat.label}</span>
+                      {isCollapsed ? (
+                        <ChevronRight className="h-3.5 w-3.5" />
+                      ) : (
+                        <ChevronDown className="h-3.5 w-3.5" />
+                      )}
+                    </button>
                   )}
-                </button>
-                {!isCollapsed && (
-                  <div id={`nav-${cat.key}`} className="mt-0.5 space-y-0.5">
-                    {cat.items.map((item) => {
-                      const Icon = item.icon;
-                      const active = isActive(item.to);
-                      return (
-                        <Link
-                          key={item.to}
-                          to={item.to}
-                          className={cn(
-                            "flex items-center gap-2 rounded-md px-3 py-2 text-sm transition-colors",
-                            active
-                              ? "bg-sidebar-accent text-sidebar-accent-foreground font-medium"
-                              : "text-sidebar-foreground hover:bg-sidebar-accent/50"
-                          )}
-                        >
-                          <Icon className="h-4 w-4" />
-                          {item.label}
-                        </Link>
-                      );
-                    })}
-                  </div>
-                )}
-              </div>
-            );
-          })}
-        </nav>
-      </aside>
+                  {/* Show items: always show when sidebar collapsed, respect category collapse when open */}
+                  {(!sidebarOpen || !isCollapsed) && (
+                    <div
+                      id={`nav-${cat.key}`}
+                      className={cn(sidebarOpen && "mt-0.5 space-y-0.5")}
+                    >
+                      {cat.items.map((item) => {
+                        const Icon = item.icon;
+                        const active = isActive(item.to);
+                        return (
+                          <Link
+                            key={item.to}
+                            to={item.to}
+                            title={sidebarOpen ? undefined : item.label}
+                            className={cn(
+                              "flex items-center rounded-md text-sm transition-colors",
+                              sidebarOpen
+                                ? "gap-2 px-3 py-2"
+                                : "justify-center px-2 py-2",
+                              active
+                                ? "bg-sidebar-accent text-sidebar-accent-foreground font-medium"
+                                : "text-sidebar-foreground hover:bg-sidebar-accent/50"
+                            )}
+                          >
+                            <Icon className="h-4 w-4 shrink-0" />
+                            {sidebarOpen && item.label}
+                          </Link>
+                        );
+                      })}
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+          </nav>
+        </aside>
 
-      {/* Main */}
-      <main className="flex-1 min-h-0 flex flex-col p-6">
-        <Outlet />
-      </main>
+        {/* Main */}
+        <main className="flex-1 min-h-0 flex flex-col p-6">
+          <Outlet />
+        </main>
+      </div>
     </div>
   );
 }
