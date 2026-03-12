@@ -34,7 +34,8 @@ import {
 } from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
 import { toast } from "sonner";
-import { Play, Plus, Pencil, Trash2, Clock } from "lucide-react";
+import { Play, Plus, Pencil, Trash2, Clock, Timer } from "lucide-react";
+import { EmptyState } from "@/components/EmptyState";
 
 // --- Helpers ---
 
@@ -339,8 +340,13 @@ export function CronJobs() {
       {/* Jobs list */}
       {filteredJobs.length === 0 ? (
         <Card>
-          <CardContent className="py-12 text-center text-muted-foreground">
-            No cron jobs found.
+          <CardContent>
+            <EmptyState
+              icon={Timer}
+              title="No cron jobs yet"
+              description="Schedule automated tasks for your agents. Create a cron job to run prompts on a recurring schedule."
+              action={{ label: "Create Cron Job", onClick: openCreate }}
+            />
           </CardContent>
         </Card>
       ) : (

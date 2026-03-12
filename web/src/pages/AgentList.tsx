@@ -23,7 +23,9 @@ import {
   Radio,
   Timer,
   Heart,
+  Bot,
 } from "lucide-react";
+import { EmptyState } from "@/components/EmptyState";
 
 /* ── status badge styling ─────────────────────────────────── */
 
@@ -144,10 +146,16 @@ export function AgentList() {
 
       {/* ── empty state ─────────────────────────────────────── */}
       {agents.length === 0 ? (
-        <div className="text-center py-12 text-muted-foreground">
-          <p className="text-lg mb-2">No agents configured</p>
-          <p className="text-sm">Create your first agent to get started.</p>
-        </div>
+        <Card>
+          <CardContent>
+            <EmptyState
+              icon={Bot}
+              title="No agents configured"
+              description="Create your first agent to get started. Agents can respond to messages, run on schedules, and automate tasks."
+              action={{ label: "Create Agent", onClick: () => navigate("/agents/new") }}
+            />
+          </CardContent>
+        </Card>
       ) : (
         <div className="grid gap-5 sm:grid-cols-2">
           {agents.map((agent) => {
