@@ -26,12 +26,7 @@ export function SessionDetail() {
 
   const scrollToBottom = useCallback(() => {
     if (scrollRef.current) {
-      const viewport = scrollRef.current.querySelector(
-        "[data-slot='scroll-area-viewport']"
-      );
-      if (viewport) {
-        viewport.scrollTop = viewport.scrollHeight;
-      }
+      scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
     }
   }, []);
 
@@ -114,7 +109,7 @@ export function SessionDetail() {
   }
 
   return (
-    <div className="flex flex-col h-[calc(100vh-4rem)]">
+    <div className="flex flex-col flex-1 min-h-0 overflow-hidden">
       {/* Header */}
       <div className="shrink-0 mb-4 space-y-1">
         <div className="flex items-center gap-3">
@@ -170,7 +165,7 @@ export function SessionDetail() {
         ) : (
           <>
             {/* Messages */}
-            <ScrollArea className="flex-1" ref={scrollRef}>
+            <div className="flex-1 min-h-0 overflow-y-auto" ref={scrollRef}>
               <div className="p-4 space-y-4">
                 {messages.length === 0 ? (
                   <div className="flex items-center justify-center h-32 text-muted-foreground text-sm">
@@ -187,7 +182,7 @@ export function SessionDetail() {
                   ))
                 )}
               </div>
-            </ScrollArea>
+            </div>
 
             {/* Input area */}
             <div className="shrink-0 border-t border-border p-3">

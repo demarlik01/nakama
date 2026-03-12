@@ -176,10 +176,8 @@ export function Layout() {
       </aside>
 
       {/* Main */}
-      <main className="flex-1 min-h-0 flex flex-col overflow-hidden p-6">
-        <div className="flex-1 min-h-0 overflow-auto">
-          <Outlet />
-        </div>
+      <main className="flex-1 min-h-0 flex flex-col p-6">
+        <Outlet />
       </main>
     </div>
   );

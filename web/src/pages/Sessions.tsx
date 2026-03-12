@@ -161,7 +161,7 @@ export function Sessions() {
   };
 
   return (
-    <div className="flex flex-col gap-4">
+    <div className="flex flex-col gap-4 flex-1 overflow-auto">
       {/* Header */}
       <div className="flex items-center gap-3">
         <div>
