@@ -8,6 +8,7 @@ import { AgentCreate } from "@/pages/AgentCreate";
 import { Health } from "@/pages/Health";
 import { Settings } from "@/pages/Settings";
 import { Sessions } from "@/pages/Sessions";
+import { SessionDetail } from "@/pages/SessionDetail";
 import { CronJobs } from "@/pages/CronJobs";
 
 export default function App() {
@@ -17,6 +18,7 @@ export default function App() {
         <Route element={<Layout />}>
           <Route path="/" element={<Dashboard />} />
           <Route path="/sessions" element={<Sessions />} />
+          <Route path="/sessions/:agentId/:sessionId" element={<SessionDetail />} />
           <Route path="/cron" element={<CronJobs />} />
           <Route path="/agents" element={<AgentList />} />
           <Route path="/agents/new" element={<AgentCreate />} />

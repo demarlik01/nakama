@@ -1,4 +1,4 @@
-import { mkdir, readFile, realpath } from 'node:fs/promises';
+import { mkdir, readdir, readFile, realpath, stat } from 'node:fs/promises';
 import path from 'node:path';
 
 import { SessionManager as PiSessionManager } from '@mariozechner/pi-coding-agent';
@@ -62,7 +62,10 @@ export async function listPersistedSessions(
   const resolvedSessionDir = path.resolve(sessionDir);
   await mkdir(sessionDir, { recursive: true });
 
+  // First try PiSessionManager (handles flat directory)
   const sessions = await PiSessionManager.list(agent.workspacePath, sessionDir);
+
+  const knownPaths = new Set<string>();
 
   const persisted = sessions
     .map((session) => {
@@ -89,6 +92,8 @@ export async function listPersistedSessions(
         return undefined;
       }
 
+      knownPaths.add(filePath);
+
       return {
         sessionId,
         fileName,
@@ -100,11 +105,129 @@ export async function listPersistedSessions(
     })
     .filter((session): session is PersistedSessionSummary => session !== undefined);
 
+  // Fallback: recursively scan subdirectories for .jsonl files missed by PiSessionManager
+  try {
+    const extraFiles = await findJsonlFilesRecursive(resolvedSessionDir);
+    for (const filePath of extraFiles) {
+      if (knownPaths.has(filePath)) continue;
+
+      const summary = await parseJsonlSessionSummary(filePath, resolvedSessionDir);
+      if (summary !== undefined) {
+        persisted.push(summary);
+      }
+    }
+  } catch {
+    // Ignore errors during recursive scan — flat results still available
+  }
+
   persisted.sort(
     (left, right) => right.modifiedAt.getTime() - left.modifiedAt.getTime(),
   );
 
   return persisted;
+}
+
+async function findJsonlFilesRecursive(dir: string, maxDepth = 3, currentDepth = 0): Promise<string[]> {
+  if (currentDepth >= maxDepth) return [];
+  const results: string[] = [];
+  let entries;
+  try {
+    entries = await readdir(dir, { withFileTypes: true });
+  } catch {
+    return results;
+  }
+  for (const entry of entries) {
+    // Skip symlinks to prevent traversal attacks
+    if (entry.isSymbolicLink()) continue;
+    const fullPath = path.join(dir, entry.name);
+    if (entry.isDirectory()) {
+      results.push(...await findJsonlFilesRecursive(fullPath, maxDepth, currentDepth + 1));
+    } else if (entry.name.endsWith(JSONL_EXTENSION)) {
+      results.push(path.resolve(fullPath));
+    }
+  }
+  return results;
+}
+
+async function parseJsonlSessionSummary(
+  filePath: string,
+  resolvedSessionDir: string,
+): Promise<PersistedSessionSummary | undefined> {
+  if (!isPathInsideDir(filePath, resolvedSessionDir)) {
+    return undefined;
+  }
+
+  // Canonicalize to catch symlink escapes
+  let canonicalPath: string;
+  try {
+    canonicalPath = await realpath(filePath);
+  } catch {
+    return undefined;
+  }
+  if (!isPathInsideDir(canonicalPath, resolvedSessionDir)) {
+    return undefined;
+  }
+
+  const fileName = path.basename(filePath);
+
+  let content: string;
+  try {
+    content = await readFile(canonicalPath, 'utf8');
+  } catch {
+    return undefined;
+  }
+
+  const lines = content.split('\n');
+  let sessionId: string | undefined;
+  let createdAt: Date | undefined;
+  let messageCount = 0;
+
+  for (const line of lines) {
+    if (line.trim() === '') continue;
+    let entry: unknown;
+    try {
+      entry = JSON.parse(line);
+    } catch {
+      continue;
+    }
+    if (!isRecord(entry)) continue;
+
+    if (entry.type === 'session') {
+      if (typeof entry.id === 'string') {
+        sessionId = normalizeSessionId(entry.id);
+      }
+      const ts = toDate(entry.timestamp);
+      if (ts !== undefined) {
+        createdAt = ts;
+      }
+    } else if (entry.type === 'message') {
+      messageCount++;
+    }
+  }
+
+  if (sessionId === undefined) {
+    sessionId = normalizeSessionId(fileName);
+  }
+  if (sessionId === undefined) {
+    return undefined;
+  }
+
+  // Use file stat for dates if not found in content
+  let fileStat;
+  try {
+    fileStat = await stat(filePath);
+  } catch {
+    return undefined;
+  }
+
+  return {
+    sessionId,
+    fileName,
+    filePath,
+    createdAt: createdAt ?? fileStat.birthtime,
+    modifiedAt: fileStat.mtime,
+    messageCount,
+  };
 }
 
 export async function readPersistedSession(

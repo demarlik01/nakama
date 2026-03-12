@@ -1,78 +1,100 @@
-import { useEffect, useState, useCallback, useRef } from "react";
+import { useEffect, useState, useCallback } from "react";
+import { useNavigate } from "react-router-dom";
 import { useEventSource, type SSEMessage } from "@/hooks/useEventSource";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { ScrollArea } from "@/components/ui/scroll-area";
-import { Textarea } from "@/components/ui/textarea";
-import { RefreshCw, Send, Plus, Maximize2, Minimize2 } from "lucide-react";
-import { ChatBubble } from "@/components/chat/ChatBubble";
-import { SessionSelect } from "@/components/chat/SessionSelect";
-
-interface SessionMessage {
-  role: "user" | "assistant";
-  preview: string;
-  timestamp: string;
-}
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "@/components/ui/table";
+import { RefreshCw, MessageSquare, Clock } from "lucide-react";
 
 interface SessionInfo {
   agentId: string;
-  status: string;
+  sessionKey?: string;
+  sessionId?: string;
   threadTs?: string;
+  status: string;
   queueDepth: number;
   lastActivityAt: string;
-  messages: SessionMessage[];
+  messages?: { role: string; preview: string; timestamp: string }[];
+}
+
+function formatRelativeTime(dateStr: string): string {
+  const now = Date.now();
+  const then = new Date(dateStr).getTime();
+  const diffMs = now - then;
+  if (diffMs < 0) return "just now";
+  const seconds = Math.floor(diffMs / 1000);
+  if (seconds < 60) return `${seconds}s ago`;
+  const minutes = Math.floor(seconds / 60);
+  if (minutes < 60) return `${minutes}m ago`;
+  const hours = Math.floor(minutes / 60);
+  if (hours < 24) return `${hours}h ago`;
+  const days = Math.floor(hours / 24);
+  return `${days}d ago`;
+}
+
+function StatusDot({ status }: { status: string }) {
+  const color =
+    status === "running"
+      ? "bg-green-500"
+      : status === "error"
+      ? "bg-red-500"
+      : "bg-muted-foreground";
+  return <span className={`inline-block size-2 rounded-full ${color}`} />;
 }
 
 export function Sessions() {
   const [sessions, setSessions] = useState<SessionInfo[]>([]);
-  const [selected, setSelected] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
-  const [focused, setFocused] = useState(false);
-  const [input, setInput] = useState("");
-  const scrollRef = useRef<HTMLDivElement>(null);
-  const selectedRef = useRef(selected);
-  selectedRef.current = selected;
+  const navigate = useNavigate();
 
-  // Auto-scroll to bottom on new messages
-  const scrollToBottom = useCallback(() => {
-    if (scrollRef.current) {
-      const viewport = scrollRef.current.querySelector(
-        "[data-slot='scroll-area-viewport']"
-      );
-      if (viewport) {
-        viewport.scrollTop = viewport.scrollHeight;
-      }
-    }
-  }, []);
-
-  // Load initial sessions
-  useEffect(() => {
+  const loadSessions = useCallback(() => {
+    setLoading(true);
     fetch("/api/sessions")
       .then((r) => r.json())
       .then((data: SessionInfo[]) => {
-        const loaded = data.map((s) => ({ ...s, messages: s.messages ?? [] }));
-        setSessions(loaded);
-        // Auto-select first session if none selected
-        if (loaded.length > 0 && !selected) {
-          setSelected(loaded[0].agentId);
-        }
+        setSessions(
+          data.map((s) => ({
+            ...s,
+            messages: s.messages ?? [],
+          }))
+        );
       })
       .catch(console.error)
       .finally(() => setLoading(false));
-  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  }, []);
 
-  // SSE handler
+  useEffect(() => {
+    loadSessions();
+  }, [loadSessions]);
+
+  // Match session by sessionKey first, fallback to agentId
+  const matchSession = useCallback(
+    (s: SessionInfo, agentId: string, sessionKey?: string) =>
+      sessionKey ? s.sessionKey === sessionKey : s.agentId === agentId,
+    []
+  );
+
+  // SSE handler to keep list up-to-date
   const handleSSE = useCallback((event: SSEMessage) => {
     const { type, data } = event;
     const agentId = data.agentId as string;
+    const sessionKey = data.sessionKey as string | undefined;
 
     if (type === "session:start") {
       setSessions((prev) => {
-        if (prev.find((s) => s.agentId === agentId)) return prev;
+        if (prev.find((s) => matchSession(s, agentId, sessionKey))) return prev;
         return [
           ...prev,
           {
             agentId,
+            sessionKey: sessionKey,
             status: "idle",
             threadTs: data.threadTs as string | undefined,
             queueDepth: 0,
@@ -85,17 +107,13 @@ export function Sessions() {
     }
 
     if (type === "session:end") {
-      setSessions((prev) => prev.filter((s) => s.agentId !== agentId));
-      // Reset selected if the ended session was selected
-      if (selectedRef.current === agentId) {
-        setSelected(null);
-      }
+      setSessions((prev) => prev.filter((s) => !matchSession(s, agentId, sessionKey)));
     }
 
     if (type === "agent:status") {
       setSessions((prev) =>
         prev.map((s) =>
-          s.agentId === agentId
+          matchSession(s, agentId, sessionKey)
             ? {
                 ...s,
                 status: data.status as string,
@@ -110,13 +128,15 @@ export function Sessions() {
     if (type === "session:message") {
       setSessions((prev) =>
         prev.map((s) =>
-          s.agentId === agentId
+          matchSession(s, agentId, sessionKey)
             ? {
                 ...s,
+                lastActivityAt:
+                  (data.timestamp as string) ?? new Date().toISOString(),
                 messages: [
-                  ...s.messages,
+                  ...(s.messages ?? []),
                   {
-                    role: data.role as "user" | "assistant",
+                    role: data.role as string,
                     preview: data.preview as string,
                     timestamp:
                       (data.timestamp as string) ?? new Date().toISOString(),
@@ -126,180 +146,134 @@ export function Sessions() {
             : s
         )
       );
-      // Auto-scroll after a tick
-      setTimeout(scrollToBottom, 50);
     }
-  }, [scrollToBottom]);
+  }, [matchSession]);
 
   const { connected } = useEventSource({
     url: "/api/events",
     onMessage: handleSSE,
   });
 
-  const selectedSession = sessions.find((s) => s.agentId === selected);
-
-  // Scroll to bottom when session changes
-  useEffect(() => {
-    setTimeout(scrollToBottom, 100);
-  }, [selected, scrollToBottom]);
-
-  const handleRefresh = () => {
-    setLoading(true);
-    fetch("/api/sessions")
-      .then((r) => r.json())
-      .then((data: SessionInfo[]) => {
-        const loaded = data.map((s) => ({ ...s, messages: s.messages ?? [] }));
-        setSessions(loaded);
-        // Reset selected if it no longer exists
-        setSelected((prev) => {
-          if (prev && !loaded.find((s) => s.agentId === prev)) {
-            return loaded.length > 0 ? loaded[0].agentId : null;
-          }
-          return prev;
-        });
-      })
-      .catch(console.error)
-      .finally(() => setLoading(false));
-  };
-
-  const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
-    if (e.key === "Enter" && !e.shiftKey && !e.nativeEvent.isComposing) {
-      e.preventDefault();
-      handleSend();
+  const handleRowClick = (session: SessionInfo) => {
+    if (session.sessionId) {
+      navigate(`/sessions/${encodeURIComponent(session.agentId)}/${encodeURIComponent(session.sessionId)}`);
     }
   };
 
-  const handleSend = () => {
-    if (!input.trim() || !selected) return;
-    // TODO: POST /api/sessions/{sessionId}/message when API is available
-    console.log("Send message:", input, "to session:", selected);
-    setInput("");
-  };
-
-  if (loading) {
-    return (
-      <div className="flex items-center justify-center h-full text-muted-foreground">
-        Loading sessions…
-      </div>
-    );
-  }
-
   return (
-    <div className={`flex flex-col h-full ${focused ? "fixed inset-0 z-50 bg-background p-4" : ""}`}>
+    <div className="flex flex-col gap-4">
       {/* Header */}
-      <div className="shrink-0 mb-4 space-y-1">
-        <div className="flex items-center gap-3">
-          <div>
-            <h1 className="text-2xl font-bold">Chat</h1>
-            <p className="text-sm text-muted-foreground">Agent sessions viewer</p>
-          </div>
-          <Badge
-            variant={connected ? "default" : "destructive"}
-            className="ml-auto"
-          >
+      <div className="flex items-center gap-3">
+        <div>
+          <h1 className="text-2xl font-bold">Sessions</h1>
+          <p className="text-sm text-muted-foreground">
+            Active agent sessions and conversation history
+          </p>
+        </div>
+        <div className="ml-auto flex items-center gap-2">
+          <Badge variant={connected ? "default" : "destructive"}>
             {connected ? "Live" : "Disconnected"}
           </Badge>
-        </div>
-
-        {/* Controls */}
-        <div className="flex items-center gap-2 pt-2">
-          <SessionSelect
-            sessions={sessions.map((s) => ({
-              agentId: s.agentId,
-              lastActivityAt: s.lastActivityAt,
-              messageCount: s.messages.length,
-              status: s.status,
-            }))}
-            value={selected}
-            onValueChange={setSelected}
-          />
-          <Button variant="outline" size="icon" onClick={handleRefresh} className="shrink-0" aria-label="Refresh sessions">
-            <RefreshCw className="size-4" />
-          </Button>
           <Button
             variant="outline"
             size="icon"
-            onClick={() => setFocused(!focused)}
-            className="shrink-0"
-            aria-label={focused ? "Exit focus mode" : "Focus mode"}
+            onClick={loadSessions}
+            aria-label="Refresh sessions"
           >
-            {focused ? (
-              <Minimize2 className="size-4" />
-            ) : (
-              <Maximize2 className="size-4" />
-            )}
+            <RefreshCw className="size-4" />
           </Button>
         </div>
       </div>
 
-      {/* Chat area */}
-      <div className="flex-1 min-h-0 border border-border rounded-xl overflow-hidden flex flex-col">
-        {selectedSession ? (
-          <>
-            {/* Messages */}
-            <ScrollArea className="flex-1" ref={scrollRef}>
-              <div className="p-4 space-y-4">
-                {selectedSession.messages.length === 0 ? (
-                  <div className="flex items-center justify-center h-32 text-muted-foreground text-sm">
-                    No messages yet. Waiting for activity…
-                  </div>
-                ) : (
-                  selectedSession.messages.map((m, i) => (
-                    <ChatBubble
-                      key={`${selected}-${m.role}-${m.timestamp}-${i}`}
-                      role={m.role}
-                      content={m.preview}
-                      timestamp={m.timestamp}
-                    />
-                  ))
-                )}
-              </div>
-            </ScrollArea>
-
-            {/* Input area */}
-            <div className="shrink-0 border-t border-border p-3">
-              <div className="flex items-end gap-2">
-                <Textarea
-                  placeholder="Message…"
-                  value={input}
-                  onChange={(e) => setInput(e.target.value)}
-                  onKeyDown={handleKeyDown}
-                  className="min-h-[40px] max-h-[120px] resize-none"
-                  rows={1}
-                />
-                <Button
-                  variant="outline"
-                  size="sm"
-                  className="shrink-0"
-                  onClick={() => {
-                    // TODO: Create new session via API
-                    console.log("New session");
+      {/* Table */}
+      {loading ? (
+        <div className="flex items-center justify-center h-48 text-muted-foreground text-sm">
+          Loading sessions…
+        </div>
+      ) : sessions.length === 0 ? (
+        <div className="flex flex-col items-center justify-center h-48 gap-2 text-muted-foreground border border-border rounded-xl">
+          <MessageSquare className="size-8 opacity-50" />
+          <p className="text-sm">No active sessions</p>
+          <p className="text-xs">Sessions will appear here when agents are active</p>
+        </div>
+      ) : (
+        <div className="border border-border rounded-xl overflow-hidden">
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead>Agent ID</TableHead>
+                <TableHead>Status</TableHead>
+                <TableHead className="text-center">Messages</TableHead>
+                <TableHead className="text-center">Queue</TableHead>
+                <TableHead>Last Activity</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {sessions.map((session) => (
+                <TableRow
+                  key={session.sessionKey ?? session.agentId}
+                  role={session.sessionId ? "button" : undefined}
+                  tabIndex={session.sessionId ? 0 : undefined}
+                  className={
+                    session.sessionId
+                      ? "cursor-pointer hover:bg-muted/50 transition-colors"
+                      : "opacity-60"
+                  }
+                  onClick={() => handleRowClick(session)}
+                  onKeyDown={(e) => {
+                    if ((e.key === "Enter" || e.key === " ") && session.sessionId) {
+                      e.preventDefault();
+                      handleRowClick(session);
+                    }
                   }}
                 >
-                  <Plus className="size-4 mr-1" />
-                  New
-                </Button>
-                <Button
-                  size="sm"
-                  className="shrink-0"
-                  disabled={!input.trim() || !selected}
-                  onClick={handleSend}
-                  aria-label="Send message"
-                >
-                  <Send className="size-4 mr-1" />
-                  Send
-                </Button>
-              </div>
-            </div>
-          </>
-        ) : (
-          <div className="flex items-center justify-center h-full text-muted-foreground">
-            {sessions.length === 0
-              ? "No active sessions"
-              : "Select a session to view conversation"}
-          </div>
-        )}
-      </div>
+                  <TableCell>
+                    <div className="flex items-center gap-2">
+                      <StatusDot status={session.status} />
+                      <span className="font-mono text-sm">{session.agentId}</span>
+                    </div>
+                    {session.sessionKey && (
+                      <p className="text-xs text-muted-foreground mt-0.5 truncate max-w-[300px] font-mono">
+                        {session.sessionKey}
+                      </p>
+                    )}
+                  </TableCell>
+                  <TableCell>
+                    <Badge
+                      variant={
+                        session.status === "running"
+                          ? "default"
+                          : session.status === "error"
+                          ? "destructive"
+                          : "secondary"
+                      }
+                      className="text-xs"
+                    >
+                      {session.status}
+                    </Badge>
+                  </TableCell>
+                  <TableCell className="text-center">
+                    <span className="text-sm tabular-nums">
+                      {session.messages?.length ?? 0}
+                    </span>
+                  </TableCell>
+                  <TableCell className="text-center">
+                    <span className="text-sm tabular-nums">
+                      {session.queueDepth}
+                    </span>
+                  </TableCell>
+                  <TableCell>
+                    <div className="flex items-center gap-1.5 text-sm text-muted-foreground">
+                      <Clock className="size-3.5" />
+                      <span>{formatRelativeTime(session.lastActivityAt)}</span>
+                    </div>
+                  </TableCell>
+                </TableRow>
+              ))}
+            </TableBody>
+          </Table>
+        </div>
+      )}
     </div>
   );
 }
