@@ -45,3 +45,33 @@
 
 ### 9. ⚪ 테마 토글 위치 (P3)
 상단 헤더로 이동.
+
+---
+
+## Agents 페이지 개선 (OpenClaw 비교)
+
+### 10. 🔴 Agents: 카드 → 마스터-디테일 레이아웃 (P0)
+**OpenClaw:** 좌측 에이전트 리스트 + 우측 상세 (탭: Overview/Files/Tools/Skills/Channels/Cron Jobs)
+**우리:** 카드 2개만 + 클릭하면 별도 AgentDetail 페이지로 이동. 빈 공간 많고 정보 부족.
+
+**개선:**
+- 좌측 에이전트 목록 (이모지/아바타 + 이름 + ID + 상태) + 우측 상세 패널
+- 또는 현재 카드를 대폭 보강 (세션 수, 마지막 활동, 토큰 사용량 등)
+- AgentDetail 탭 구조 참고: Overview / Sessions / Config / Cron Jobs
+
+### 11. 🟠 Agents 카드: 정보 보강 (P1)
+**현재:** 이름 + 한 줄 설명 + 모델 + Ch: 1
+**개선:**
+- 활성/총 세션 수 (예: "2 active / 5 total")
+- 마지막 활동 시간
+- 토큰 사용량 요약 (오늘/이번 주)
+- 에이전트 상태 아이콘 (running 초록 / idle 회색)
+
+### 12. 🟠 AgentDetail: 탭 추가 (P1)
+**현재:** Overview / Sessions / Logs / Config 탭
+**OpenClaw:** Overview / Files / Tools / Skills / Channels / Cron Jobs
+**개선:** 우리 에이전트에 맞게 탭 정리
+- Overview: workspace, 모델, 채널, 크론 정보
+- Sessions: 이미 개선됨 (상세 네비게이션)
+- Config: 인라인 에디팅
+- Logs: 실시간 로그 (유지)
