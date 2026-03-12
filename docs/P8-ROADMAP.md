@@ -86,58 +86,26 @@ OpenClaw Control UI 분석 후 개선안 수립 → `docs/dashboard-improvement.
 
 ---
 
-## 진행 중 항목
+## 완료 항목 — OpenClaw 비교 개선점
 
-### Phase 4: Sessions 세션 단위 리스트 + 에이전트 필터 🔄
+### Phase 4 ✅ Sessions 세션 단위 리스트 + 에이전트 필터 (2026-03-13)
+- 서버: `/api/sessions/all` — 활성+과거 세션 통합, messageCount 포함, agent 필터
+- Sessions.tsx: 세션 단위 테이블 + 에이전트 필터 드롭다운
+- api.ts: `fetchAllSessions(agent?)` 추가
+- 커밋: `50c61ad`
 
-**상태:** 서브에이전트 작업 중 (2026-03-13)
-
-**문제:**
-- 에이전트 단위로만 표시 (에이전트별 1행) → 세션 단위로 표시해야 함
-- 과거(persisted) 세션이 안 보임
-- Messages 수 항상 0
-- sessionKey가 agentId와 중복 표시
-
-**계획:**
-
-| 작업 | 파일 | 설명 |
-|------|------|------|
-| 서버 API | `src/api/routes/` | `/api/sessions/all` — 활성+과거 세션 통합, messageCount 포함, agent 필터 |
-| 세션 목록 | `Sessions.tsx` | 세션 단위 테이블 + 에이전트 필터 드롭다운 |
-| API 클라이언트 | `api.ts` | `fetchAllSessions(agent?)` 추가 |
+### Phase 5 ✅ OpenClaw 비교 개선 일괄 적용 (2026-03-13)
+- **Layout 개편**: 상단 h-12 헤더 (Version+Health+테마토글) + 사이드바 접기/펼치기 (`9018126`)
+- **SessionDetail metadata 접기**: parseSlackMessage() + ▸ Metadata collapsible (`7583507`)
+- **Overview 보강**: Recent Activity 타임라인 + Slack 연결 상태 + Quick Actions (`656b11a`)
+- **Agents 카드 보강**: 세션 수, 마지막 활동, 채널 뱃지 (`5d35c59`)
+- **Empty State**: CronJobs/AgentList 빈 상태 안내 + CTA 버튼 (`656b11a`)
+- **Tool call 표시**: (No text content) → [Tool call: bash] (`5256f50`)
+- **테마 토글**: 상단 헤더에 Sun/Moon 아이콘으로 배치 (`9018126`)
 
 ---
 
-## 미착수 항목 — OpenClaw 비교 개선점 (P8 범위)
-
-> 상세: `docs/dashboard-improvements-v2.md`
-
-### P1: SessionDetail raw metadata 처리
-- "Conversation info (untrusted metadata)..." 가 사용자 메시지로 그대로 노출
-- 메타데이터 블록을 접기/숨기기 처리 또는 서버에서 본문 분리
-
-### P1: 상단 헤더 바 추가
-- Layout에 고정 헤더 (Version + Health + 테마 토글 + 사이드바 접기 버튼)
-- OpenClaw처럼 상단에 정보 집약
-
-### P2: Overview 대시보드 고도화
-- Slack 연결 상태 카드
-- 최근 세션 활동 타임라인
-- 토큰 사용량 요약
-- 시스템 상태 상세 (uptime, 메모리)
-
-### P2: Agents 카드 정보 보강
-- 활성 세션 수, 마지막 활동, 총 메시지 수, 토큰 사용량 요약
-
-### P2: 사이드바 접기 (collapse)
-- 햄버거 메뉴로 사이드바 토글
-- 아이콘 전용 모드
-
-### P3: Empty State 개선
-- 데이터 없을 때 일러스트 + 안내 + CTA 버튼
-
-### P3: 테마 토글 위치
-- 사이드바 → 상단 헤더로 이동
+## 미착수 항목 (P8 범위)
 
 ### P3: 사이드바 아이콘 스타일 통일
 - 카테고리 접기를 `-`/`+`로 변경 (OpenClaw 스타일)
