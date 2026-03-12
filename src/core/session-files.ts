@@ -357,16 +357,26 @@ function extractMessageContent(content: unknown): string {
   }
 
   const parts: string[] = [];
+  const toolCalls: string[] = [];
   for (const part of content) {
     if (!isRecord(part)) {
       continue;
     }
     if (part.type === 'text' && typeof part.text === 'string') {
       parts.push(part.text);
+    } else if (part.type === 'toolCall' || part.type === 'tool_use') {
+      const name = typeof part.name === 'string' ? part.name : typeof part.toolName === 'string' ? part.toolName : 'tool';
+      toolCalls.push(name);
     }
   }
 
-  return parts.length > 0 ? parts.join('') : '(No text content)';
+  if (parts.length > 0) {
+    return parts.join('');
+  }
+  if (toolCalls.length > 0) {
+    return `[Tool call: ${toolCalls.join(', ')}]`;
+  }
+  return '(No text content)';
 }
 
 function toIsoTimestamp(value: unknown): string | undefined {
