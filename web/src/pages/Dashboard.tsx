@@ -111,8 +111,17 @@ export function Dashboard() {
   if (loading) return <div className="text-muted-foreground">Loading...</div>;
 
   const activeAgents = agents.filter((a) => a.enabled);
-  const runningAgents = agents.filter((a) => a.status === "running");
+  const activeSessions = sessions.filter((s) => s.status === "active");
   const totalCron = agents.reduce((sum, a) => sum + (a.cron?.length ?? 0), 0);
+
+  // Build a map of agentId → last activity for agent status cards
+  const agentLastActivity: Record<string, string> = {};
+  for (const s of sessions) {
+    const existing = agentLastActivity[s.agentId];
+    if (!existing || new Date(s.lastActivityAt) > new Date(existing)) {
+      agentLastActivity[s.agentId] = s.lastActivityAt;
+    }
+  }
 
   // Recent sessions: sorted newest first, limit 8
   const recentSessions = [...sessions]
@@ -173,14 +182,14 @@ export function Dashboard() {
         >
           <CardHeader className="flex flex-row items-center justify-between pb-2">
             <CardTitle className="text-sm font-medium text-muted-foreground">
-              Running Now
+              Active Sessions
             </CardTitle>
             <Radio className="h-4 w-4 text-muted-foreground" />
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold">{runningAgents.length}</div>
+            <div className="text-2xl font-bold">{activeSessions.length}</div>
             <p className="text-xs text-muted-foreground mt-1">
-              active sessions
+              {sessions.length} total
             </p>
           </CardContent>
         </Card>
@@ -346,9 +355,16 @@ export function Dashboard() {
                                   : "bg-gray-500"
                           }`}
                         />
-                        <span className="text-sm font-medium truncate">
-                          {agent.displayName}
-                        </span>
+                        <div className="min-w-0">
+                          <span className="text-sm font-medium truncate block">
+                            {agent.displayName}
+                          </span>
+                          {agentLastActivity[agent.id] && (
+                            <span className="text-xs text-muted-foreground/70">
+                              {formatRelativeTime(agentLastActivity[agent.id])}
+                            </span>
+                          )}
+                        </div>
                       </div>
                       <span className="text-xs text-muted-foreground font-mono shrink-0">
                         {agent.status}
