@@ -1,8 +1,10 @@
 import { useState, memo } from "react";
 import Markdown from "react-markdown";
-import { Copy, Check, User, Bot } from "lucide-react";
+import { Copy, Check, User, Bot, ChevronRight, ChevronDown, Wrench } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { ToolCallBlock } from "./ToolCallBlock";
+import { parseSlackMessage, parseToolCallMarker } from "@/lib/message-parser";
 
 interface ToolCall {
   name: string;
@@ -20,6 +22,7 @@ interface ChatBubbleProps {
 
 export const ChatBubble = memo(function ChatBubble({ role, content, timestamp, toolCalls }: ChatBubbleProps) {
   const [copied, setCopied] = useState(false);
+  const [metadataOpen, setMetadataOpen] = useState(false);
   const isUser = role === "user";
 
   const handleCopy = async () => {
@@ -36,6 +39,25 @@ export const ChatBubble = memo(function ChatBubble({ role, content, timestamp, t
     hour: "2-digit",
     minute: "2-digit",
   });
+
+  // Parse user messages for metadata; check assistant messages for tool-call markers
+  const parsed = isUser ? parseSlackMessage(content) : null;
+  const toolCallMarker = !isUser ? parseToolCallMarker(content) : null;
+  const displayContent = parsed ? parsed.text : content;
+
+  // Tool-call marker → compact badge instead of full bubble
+  if (toolCallMarker) {
+    return (
+      <div className="flex flex-col gap-1 items-start">
+        <div className="flex items-center gap-1.5 px-1">
+          <div className="flex items-center gap-1.5 text-xs text-muted-foreground italic">
+            <Wrench className="size-3" />
+            <span className="font-mono">{toolCallMarker.toolName}</span>
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className={`flex flex-col gap-1 ${isUser ? "items-end" : "items-start"}`}>
@@ -74,10 +96,65 @@ export const ChatBubble = memo(function ChatBubble({ role, content, timestamp, t
         )}
 
         {/* Content */}
-        {content && (
+        {displayContent && (
           <div className="prose prose-sm prose-invert max-w-none break-words [&_pre]:bg-muted [&_pre]:rounded-md [&_pre]:p-3 [&_pre]:text-xs [&_pre]:overflow-x-auto [&_code]:bg-muted [&_code]:rounded [&_code]:px-1 [&_code]:py-0.5 [&_code]:text-xs [&_p]:my-1 [&_ul]:my-1 [&_ol]:my-1">
-            <Markdown>{content}</Markdown>
+            <Markdown>{displayContent}</Markdown>
           </div>
+        )}
+
+        {/* Metadata collapsible (user messages only) */}
+        {parsed?.metadata && (
+          <Collapsible open={metadataOpen} onOpenChange={setMetadataOpen}>
+            <CollapsibleTrigger asChild>
+              <button
+                type="button"
+                className="flex items-center gap-1 text-[11px] text-muted-foreground hover:text-foreground transition-colors mt-2 cursor-pointer"
+              >
+                {metadataOpen ? (
+                  <ChevronDown className="size-3" />
+                ) : (
+                  <ChevronRight className="size-3" />
+                )}
+                <span>Metadata</span>
+              </button>
+            </CollapsibleTrigger>
+            <CollapsibleContent>
+              <div className="mt-1.5 rounded-md bg-background/50 border border-border/50 px-3 py-2 text-[11px] font-mono text-muted-foreground space-y-0.5">
+                {parsed.metadata.sender && (
+                  <div>
+                    <span className="text-foreground/60">Sender:</span>{" "}
+                    {parsed.metadata.sender}
+                  </div>
+                )}
+                {parsed.metadata.messageId && (
+                  <div>
+                    <span className="text-foreground/60">Message ID:</span>{" "}
+                    {parsed.metadata.messageId}
+                  </div>
+                )}
+                {parsed.metadata.senderId && (
+                  <div>
+                    <span className="text-foreground/60">Sender ID:</span>{" "}
+                    {parsed.metadata.senderId}
+                  </div>
+                )}
+                {parsed.metadata.timestamp && (
+                  <div>
+                    <span className="text-foreground/60">Timestamp:</span>{" "}
+                    {parsed.metadata.timestamp}
+                  </div>
+                )}
+                {parsed.metadata.repliedMessage && (
+                  <div>
+                    <span className="text-foreground/60">Replied to:</span>
+                    <pre className="mt-0.5 whitespace-pre-wrap text-[10px] opacity-70">
+                      {parsed.metadata.repliedMessage}
+                    </pre>
+                  </div>
+                )}
+              </div>
+            </CollapsibleContent>
+          </Collapsible>
         )}
 
         {/* Copy button for assistant */}
