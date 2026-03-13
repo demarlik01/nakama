@@ -10,8 +10,8 @@ import {
   Bot,
   Activity,
   Settings2,
-  ChevronDown,
-  ChevronRight,
+  Minus,
+  Plus,
   Zap,
   PanelLeftClose,
   PanelLeftOpen,
@@ -239,9 +239,9 @@ export function Layout() {
                     >
                       <span>{cat.label}</span>
                       {isCollapsed ? (
-                        <ChevronRight className="h-3.5 w-3.5" />
+                        <Plus className="h-3 w-3" />
                       ) : (
-                        <ChevronDown className="h-3.5 w-3.5" />
+                        <Minus className="h-3 w-3" />
                       )}
                     </button>
                   )}
