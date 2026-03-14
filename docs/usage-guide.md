@@ -8,6 +8,7 @@
 - [컨시어지](#컨시어지)
 - [에이전트가 할 수 있는 것](#에이전트가-할-수-있는-것)
 - [Web UI / API](#web-ui--api)
+- [LLM 인증 설정](#llm-인증-설정)
 - [에이전트 커스터마이징](#에이전트-커스터마이징)
 
 ---
@@ -206,3 +207,66 @@ curl -s -X DELETE http://localhost:3001/api/agents/my-agent \
 ```
 
 에이전트는 이 파일을 시스템 프롬프트로 사용하여 역할에 맞게 행동합니다.
+
+---
+
+## LLM 인증 설정
+
+Nakama는 `config.yaml`의 `llm.auth` 설정으로 LLM 인증을 관리합니다.
+
+### 인증 방식
+
+#### 1. API Key 방식
+
+Anthropic API 키를 직접 사용합니다.
+
+**CLI로 설정:**
+
+```bash
+nakama auth set-key
+# 프롬프트에 API 키 입력
+```
+
+**config.yaml 직접 편집:**
+
+```yaml
+llm:
+  auth:
+    type: api-key
+    key: sk-ant-api03-...
+```
+
+#### 2. OAuth 방식 (Claude Max/Pro 구독)
+
+Claude 구독 크레딧을 사용합니다. 브라우저 기반 OAuth 로그인 후 토큰이 config.yaml에 자동 저장됩니다.
+
+**CLI로 설정:**
+
+```bash
+nakama auth login
+# 브라우저에서 인증 완료 → 토큰 자동 저장
+```
+
+**config.yaml 직접 편집:**
+
+```yaml
+llm:
+  auth:
+    type: oauth
+    accessToken: sk-ant-oat01-...
+    refreshToken: sk-ant-ort01-...
+    expires: 1773354715015
+```
+
+### `nakama auth` CLI
+
+| 명령어 | 설명 |
+|--------|------|
+| `nakama auth login` | OAuth 로그인 (브라우저) |
+| `nakama auth set-key` | API 키 설정 |
+| `nakama auth status` | 현재 인증 상태 확인 |
+
+### 참고
+
+- 전체 설정 예시는 [`config.example.yaml`](../config.example.yaml) 참조
+- OAuth 토큰은 만료 시 자동 갱신됩니다

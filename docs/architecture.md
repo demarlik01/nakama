@@ -9,7 +9,7 @@
 |------|------|------|
 | 언어 | TypeScript (Node.js) | Pi SDK = TypeScript, Slack Bolt 지원 |
 | LLM 런타임 | Pi SDK (`@mariozechner/pi-*`) | 에이전트 루프 + 도구 호출 + 멀티 프로바이더 |
-| LLM 인증 | setup-token (Claude 구독) | Claude Max 구독 크레딧 사용, API 키 과금 불필요 |
+| LLM 인증 | config.yaml 기반 (API Key / OAuth) | config.yaml 하나로 인증 관리, API 키 또는 OAuth 지원 |
 | Slack 연동 | `@slack/bolt` (Socket Mode) | 공식 프레임워크, 이벤트/스레드/인터랙션 |
 | Web UI | Vite + React 19 + shadcn/ui | 다크 테마, 포트 3001 |
 | API | Express | REST API, SSE 실시간 이벤트 |
@@ -415,7 +415,9 @@ llm:
   implementation: pi              # pi | anthropic-direct | openai-direct
   provider: anthropic
   defaultModel: claude-sonnet-4-20250514
-  auth: setup-token
+  auth:
+    type: api-key          # api-key | oauth
+    key: ${ANTHROPIC_API_KEY}
 
 workspaces:
   root: ~/.nakama/workspaces

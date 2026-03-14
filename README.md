@@ -42,7 +42,7 @@
 |------|------|
 | 언어 | TypeScript (Node.js ≥22) |
 | LLM 런타임 | Pi SDK (`@mariozechner/pi-*`) — 오픈소스 에이전트 프레임워크 |
-| LLM 인증 | setup-token (Claude Max/Pro 구독 크레딧 사용) |
+| LLM 인증 | config.yaml 기반 (API Key 또는 OAuth) |
 | Slack | `@slack/bolt` (Socket Mode) |
 | API | Express + SSE |
 | Web UI | Vite + React 19 + shadcn/ui (다크 테마) |
@@ -80,6 +80,11 @@ cd web && pnpm install && cd ..
 
 cp config.example.yaml config.yaml
 # config.yaml에 Slack 토큰 등 입력
+
+# LLM 인증 설정 (택 1)
+nakama auth set-key       # 방법 1: API 키 설정
+nakama auth login         # 방법 2: OAuth 로그인 (Claude Max/Pro 구독)
+nakama auth status        # 인증 상태 확인
 
 pnpm dev                  # 백엔드 (tsx watch, 포트 3000)
 cd web && pnpm dev        # 프론트엔드 (Vite, 포트 5173)
