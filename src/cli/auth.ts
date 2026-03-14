@@ -128,17 +128,24 @@ async function handleLogin(): Promise<void> {
 function handleStatus(): void {
   const configPath = getConfigPath();
   const doc = readConfigDoc(configPath);
-  const parsed = doc.toJSON() as Record<string, unknown>;
-  const llm = parsed.llm as Record<string, unknown> | undefined;
+  const parsed = doc.toJSON();
 
-  if (!llm) {
+  if (parsed === null || typeof parsed !== 'object' || Array.isArray(parsed)) {
+    console.log('Invalid config.yaml format');
+    return;
+  }
+
+  const llm = (parsed as Record<string, unknown>).llm;
+
+  if (!llm || typeof llm !== 'object' || Array.isArray(llm)) {
     console.log('No LLM configuration found in config.yaml');
     return;
   }
 
-  const auth = llm.auth as Record<string, unknown> | string | undefined;
-  console.log(`Provider: ${llm.provider ?? '(not set)'}`);
-  console.log(`Default model: ${llm.defaultModel ?? '(not set)'}`);
+  const llmConfig = llm as Record<string, unknown>;
+  const auth = llmConfig.auth as Record<string, unknown> | string | undefined;
+  console.log(`Provider: ${llmConfig.provider ?? '(not set)'}`);
+  console.log(`Default model: ${llmConfig.defaultModel ?? '(not set)'}`);
 
   if (typeof auth === 'string') {
     console.log(`\n⚠ Auth is using the old string format: "${auth}"`);

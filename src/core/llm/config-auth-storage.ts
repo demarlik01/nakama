@@ -105,6 +105,8 @@ function updateConfigYamlAuth(configPath: string, provider: string, storageJson:
 
 export class ConfigAuthStorageBackend implements AuthStorageBackend {
   private currentJson: string;
+  /** In-process mutex to serialize concurrent async operations (e.g. token refresh). */
+  private pending: Promise<unknown> = Promise.resolve();
 
   constructor(
     private readonly provider: string,
@@ -130,18 +132,24 @@ export class ConfigAuthStorageBackend implements AuthStorageBackend {
   }
 
   async withLockAsync<T>(fn: (current: string | undefined) => Promise<LockResult<T>>): Promise<T> {
-    const { result, next } = await fn(this.currentJson);
+    // Serialize concurrent async calls (e.g. simultaneous token refreshes)
+    const task = this.pending.then(async () => {
+      const { result, next } = await fn(this.currentJson);
 
-    if (next !== undefined) {
-      this.currentJson = next;
-      try {
-        updateConfigYamlAuth(this.configPath, this.provider, next);
-      } catch (err: unknown) {
-        console.error('[ConfigAuthStorage] Failed to persist credentials to config.yaml:', err);
+      if (next !== undefined) {
+        this.currentJson = next;
+        try {
+          updateConfigYamlAuth(this.configPath, this.provider, next);
+        } catch (err: unknown) {
+          console.error('[ConfigAuthStorage] Failed to persist credentials to config.yaml:', err);
+        }
       }
-    }
 
-    return result;
+      return result;
+    });
+
+    this.pending = task.catch(() => {});
+    return task;
   }
 }
 
