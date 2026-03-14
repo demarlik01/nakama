@@ -1,7 +1,6 @@
-# OpenClaw Heartbeat & Cron 구현 분석
+# Heartbeat & Cron 구현 분석
 
 > 소스코드 기반 리서치. 코드 위치는 OpenClaw dist 번들 기준 (minified JS이므로 라인 번호는 근사치).
-> Base path: `/Users/hyo/.local/share/mise/installs/node/24.14.0/lib/node_modules/openclaw/dist/`
 
 ---
 

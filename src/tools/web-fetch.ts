@@ -48,7 +48,7 @@ export function createWebFetchTool(): ToolDefinition<typeof WebFetchSchema> {
         response = await fetch(url, {
           headers: {
             'User-Agent':
-              'Mozilla/5.0 (compatible; AgentForWork/1.0; +https://github.com/agent-for-work)',
+              'Mozilla/5.0 (compatible; Nakama/1.0; +https://github.com/nakama)',
             Accept: 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
           },
           redirect: 'follow',

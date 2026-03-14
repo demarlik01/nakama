@@ -29,7 +29,7 @@ export function createBasicAuthMiddleware(config: AppConfig) {
 
     const authHeader = req.headers.authorization;
     if (!authHeader || !authHeader.startsWith('Basic ')) {
-      res.status(401).set('WWW-Authenticate', 'Basic realm="agent-for-work"').json({ error: 'Authentication required' });
+      res.status(401).set('WWW-Authenticate', 'Basic realm="nakama"').json({ error: 'Authentication required' });
       return;
     }
 
@@ -37,7 +37,7 @@ export function createBasicAuthMiddleware(config: AppConfig) {
     const a = Buffer.from(provided);
     const b = Buffer.from(expectedCredentials);
     if (a.length !== b.length || !timingSafeEqual(a, b)) {
-      res.status(401).set('WWW-Authenticate', 'Basic realm="agent-for-work"').json({ error: 'Invalid credentials' });
+      res.status(401).set('WWW-Authenticate', 'Basic realm="nakama"').json({ error: 'Invalid credentials' });
       return;
     }
 

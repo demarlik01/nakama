@@ -205,7 +205,7 @@ export function createAgentsRouter(deps: AgentsRouterDependencies): Router {
     const level = (req.query.level as string) || undefined;
 
     try {
-      const pm2LogPath = `${process.env.HOME}/.pm2/logs/agent-for-work-out.log`;
+      const pm2LogPath = `${process.env.HOME}/.pm2/logs/nakama-out.log`;
       const { existsSync } = await import('node:fs');
 
       let logs: Record<string, unknown>[] = [];

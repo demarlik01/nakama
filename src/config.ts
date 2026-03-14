@@ -96,8 +96,8 @@ export function validateAppConfig(config: unknown): AppConfig {
       auth: requireString(llm.auth, 'llm.auth'),
     },
     workspaces: {
-      root: typeof workspaces.root === 'string' ? workspaces.root : path.join(os.homedir(), '.agent-for-work', 'workspaces'),
-      shared: typeof workspaces.shared === 'string' ? workspaces.shared : path.join(os.homedir(), '.agent-for-work', 'shared'),
+      root: typeof workspaces.root === 'string' ? workspaces.root : path.join(os.homedir(), '.nakama', 'workspaces'),
+      shared: typeof workspaces.shared === 'string' ? workspaces.shared : path.join(os.homedir(), '.nakama', 'shared'),
     },
     api: {
       enabled: requireBoolean(api.enabled, 'api.enabled'),

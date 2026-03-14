@@ -1,4 +1,4 @@
-# Agent for Work — 사용 가이드
+# Nakama — 사용 가이드
 
 ## 목차
 
@@ -180,7 +180,7 @@ curl -s -X DELETE http://localhost:3001/api/agents/my-agent \
 
 ## 에이전트 커스터마이징
 
-각 에이전트의 워크스페이스(`~/.agent-for-work/workspaces/{agent-id}/`)에 있는 파일로 행동을 커스터마이징합니다.
+각 에이전트의 워크스페이스(`~/.nakama/workspaces/{agent-id}/`)에 있는 파일로 행동을 커스터마이징합니다.
 
 | 파일 | 용도 | 누가 편집 |
 |------|------|-----------|

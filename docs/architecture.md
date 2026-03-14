@@ -1,25 +1,25 @@
-# Architecture Design Document
+# Architecture Document
 
-> 최종 수정: 2026-03-01
-> Pi SDK + setup-token(구독) 기반 아키텍처.
-> PRD v0.2 반영: 범용 에이전트, 동적 레지스트리, API 레이어.
+> 최종 수정: 2026-03-14
+> P1~P8 구현 완료 기준. Pi SDK + Slack Bolt + Web Dashboard.
 
 ## 1. 기술 결정 요약
 
 | 결정 | 선택 | 이유 |
 |------|------|------|
-| LLM 통신 | HTTP API (Pi SDK) | 구조화된 요청/응답, 도구 호출 내장 |
-| 에이전트 런타임 | Pi SDK (`@mariozechner/pi-*`) | OpenClaw 코어 엔진, 실전 검증 |
-| Slack 연동 | Slack Bolt (TypeScript) | 공식 프레임워크, 이벤트/스레드 지원 |
-| 인증 | setup-token (Claude 구독) | Claude Max 구독으로 월정액, API 키 과금 불필요 |
-| 에이전트 등록 | 파일시스템 기반 동적 레지스트리 | config 재시작 없이 에이전트 추가/삭제 |
-| API | REST API 서버 | Web UI + 외부 연동 대비 |
-
-### 인증 방식: setup-token
-- `claude setup-token` 명령으로 토큰 생성 → Pi SDK에 전달
-- Claude Max/Pro 구독 크레딧을 API처럼 사용 가능
-- 토큰 만료 시 재발급 필요
-- API 키 방식도 병행 가능 (필요 시 전환)
+| 언어 | TypeScript (Node.js) | Pi SDK = TypeScript, Slack Bolt 지원 |
+| LLM 런타임 | Pi SDK (`@mariozechner/pi-*`) | 에이전트 루프 + 도구 호출 + 멀티 프로바이더 |
+| LLM 인증 | setup-token (Claude 구독) | Claude Max 구독 크레딧 사용, API 키 과금 불필요 |
+| Slack 연동 | `@slack/bolt` (Socket Mode) | 공식 프레임워크, 이벤트/스레드/인터랙션 |
+| Web UI | Vite + React 19 + shadcn/ui | 다크 테마, 포트 3001 |
+| API | Express | REST API, SSE 실시간 이벤트 |
+| 세션 영속화 | Pi SDK SessionManager (JSONL) | 대화 히스토리 파일 기반 저장/복원 |
+| 사용량 추적 | SQLite (better-sqlite3) | 토큰 사용량 DB |
+| 크론 상태 | cron-store.json | 크론 잡 상태 영속화 |
+| 이미지 처리 | sharp | Slack 첨부 이미지 리사이즈 → LLM 비전 |
+| HTML 파싱 | linkedom + @mozilla/readability | web-fetch 도구 콘텐츠 추출 |
+| 스케줄러 | croner | 크론 + interval 지원 |
+| 파일 감시 | chokidar | 에이전트 동적 등록/해제 |
 
 ---
 
@@ -28,434 +28,382 @@
 ```
 ┌──────────────────────────────────────────────────────────────┐
 │                      Slack Workspace                          │
-│    DM / @agent 멘션 / 스레드 답장                              │
+│    DM / @agent 멘션 / 스레드 답장 / 리액션                      │
 └────────────────────────┬─────────────────────────────────────┘
-                         │ Slack Events API (WebSocket)
+                         │ Socket Mode (WebSocket)
                          ▼
 ┌──────────────────────────────────────────────────────────────┐
-│                      Agent Gateway                            │
+│                     Agent Gateway                             │
 │                                                               │
-│  ┌──────────┐   ┌──────────────┐   ┌───────────────────────┐ │
-│  │  Slack   │   │   REST API   │   │     Scheduler         │ │
-│  │  Bolt    │   │   Server     │   │   (cron/heartbeat)    │ │
-│  └────┬─────┘   └──────┬───────┘   └──────────┬────────────┘ │
-│       │                │                       │              │
-│       ▼                ▼                       ▼              │
-│  ┌────────────────────────────────────────────────────────┐   │
-│  │                  Message Router                         │   │
-│  │  Slack 메시지 / API 요청 → 에이전트 매핑                 │   │
-│  └───────────────────────┬────────────────────────────────┘   │
-│                          ▼                                    │
-│  ┌────────────────────────────────────────────────────────┐   │
-│  │                Agent Registry                           │   │
-│  │                                                        │   │
-│  │  워크스페이스 디렉토리 감시 (fs watch)                    │   │
-│  │  에이전트 추가/삭제 자동 감지                             │   │
-│  │  에이전트 메타데이터 + Slack 매핑 관리                    │   │
-│  └───────────────────────┬────────────────────────────────┘   │
-│                          ▼                                    │
-│  ┌────────────────────────────────────────────────────────┐   │
-│  │                Session Manager                          │   │
-│  │                                                        │   │
-│  │  ┌──────────┐  ┌──────────┐  ┌──────────┐             │   │
-│  │  │ Agent A  │  │ Agent B  │  │ Agent C  │  ...        │   │
-│  │  │ session  │  │ session  │  │ session  │             │   │
-│  │  └────┬─────┘  └────┬─────┘  └────┬─────┘             │   │
-│  └───────┼──────────────┼──────────────┼──────────────────┘   │
-│          ▼              ▼              ▼                      │
-│  ┌────────────────────────────────────────────────────────┐   │
-│  │           Pi Agent Loop (per session)                   │   │
-│  │                                                        │   │
-│  │  createAgentSession() / agentLoop()                    │   │
-│  │     ↓                                                  │   │
-│  │  pi-ai: LLM API 호출 (Anthropic/OpenAI/Google)         │   │
-│  │     ↓                                                  │   │
-│  │  tool call → Tool Executor → 결과 → 반복               │   │
-│  └────────────────────────────────────────────────────────┘   │
-│          │                                                    │
-│          ▼                                                    │
-│  ┌────────────────────────────────────────────────────────┐   │
-│  │                 Tool Executor                           │   │
-│  │                                                        │   │
-│  │  기본 도구: Bash, Read, Write, Edit, WebSearch, WebFetch│   │
-│  │  (셸로 git, gh, curl 등 뭐든 실행 가능)                 │   │
-│  └────────────────────────────────────────────────────────┘   │
+│  ┌───────────┐  ┌──────────────┐  ┌────────────────────────┐ │
+│  │  Slack    │  │   REST API   │  │  Cron / Heartbeat      │ │
+│  │  Gateway  │  │   + SSE      │  │  Service               │ │
+│  └─────┬─────┘  └──────┬───────┘  └──────────┬─────────────┘ │
+│        │               │                      │               │
+│        ▼               ▼                      ▼               │
+│  ┌─────────────────────────────────────────────────────────┐  │
+│  │                 Message Router                           │  │
+│  │  Slack 메시지 → 에이전트 매핑 (채널/DM/스레드/리액션)      │  │
+│  │  컨시어지: 매핑 실패 시 에이전트 목록 안내                  │  │
+│  └────────────────────────┬────────────────────────────────┘  │
+│                           ▼                                   │
+│  ┌─────────────────────────────────────────────────────────┐  │
+│  │                Agent Registry                            │  │
+│  │  파일시스템 감시 (chokidar) → 에이전트 동적 등록/해제      │  │
+│  │  agent.json 메타데이터 + Slack 매핑 관리                  │  │
+│  │  CRUD API (생성/수정/삭제)                                │  │
+│  └────────────────────────┬────────────────────────────────┘  │
+│                           ▼                                   │
+│  ┌─────────────────────────────────────────────────────────┐  │
+│  │               Session Manager                            │  │
+│  │                                                          │  │
+│  │  세션 모드: single | per-channel | per-thread            │  │
+│  │  세션 영속화 (JSONL via Pi SDK SessionManager)             │  │
+│  │  idle timeout → 자동 종료                                 │  │
+│  │  세션 TTL 클린업 (6시간 주기)                               │  │
+│  │  메시지 큐 (per agent)                                    │  │
+│  │                                                          │  │
+│  │  ┌──────────┐ ┌──────────┐ ┌──────────┐                 │  │
+│  │  │ Agent A  │ │ Agent B  │ │ Agent C  │ ...             │  │
+│  │  │ session  │ │ session  │ │ session  │                 │  │
+│  │  └────┬─────┘ └────┬─────┘ └────┬─────┘                 │  │
+│  └───────┼─────────────┼─────────────┼──────────────────────┘  │
+│          ▼             ▼             ▼                         │
+│  ┌─────────────────────────────────────────────────────────┐  │
+│  │          Pi Agent Loop (per session)                      │  │
+│  │                                                          │  │
+│  │  createAgentSession() / agentLoop()                      │  │
+│  │  LLM API 호출 (Anthropic/OpenAI/Google)                   │  │
+│  │  tool call → Tool Executor → 결과 → 반복                  │  │
+│  └──────────────────────┬──────────────────────────────────┘  │
+│                         ▼                                     │
+│  ┌─────────────────────────────────────────────────────────┐  │
+│  │                Tool Executor                              │  │
+│  │                                                          │  │
+│  │  내장: Bash, Read, Write, Edit                            │  │
+│  │  커스텀: WebSearch, WebFetch, MemoryRead, MemoryWrite     │  │
+│  └─────────────────────────────────────────────────────────┘  │
+│                                                               │
+│  ┌─────────────────────────────────────────────────────────┐  │
+│  │  Notifier        │  UsageTracker    │  SSE Manager       │  │
+│  │  에러/알림 전송    │  토큰 사용량 추적  │  실시간 이벤트      │  │
+│  └─────────────────────────────────────────────────────────┘  │
 └──────────────────────────────────────────────────────────────┘
-           │
-           ▼
-┌────────────────────────┐  ┌──────────────────┐
-│ /workspaces/           │  │ Anthropic API    │
-│  ├── agent-a/          │  │ (또는 Bedrock/   │
-│  ├── agent-b/          │  │  Vertex)         │
-│  └── _shared/          │  └──────────────────┘
-└────────────────────────┘
+         │                                        │
+         ▼                                        ▼
+┌─────────────────────┐  ┌─────────────────────────────────────┐
+│ ~/.nakama/  │  │ Web Dashboard (React)                │
+│  ├── workspaces/    │  │  Dashboard, Agents, Sessions,        │
+│  │   └── {agent}/   │  │  CronJobs, Health, Settings          │
+│  │     └── sessions/│  │  포트 3001                            │
+│  ├── usage.db       │  │                                      │
+│  └── cron-store.json│  │                                      │
+└─────────────────────┘  └─────────────────────────────────────┘
 ```
 
 ---
 
-## 3. 컴포넌트 상세
-
-### 3.1 Agent Registry (동적 에이전트 관리)
-
-에이전트 등록은 **파일시스템 기반**. config.yaml에 하드코딩하지 않는다.
+## 3. 소스 구조
 
 ```
-/workspaces/
-├── _shared/                    # 팀 공유 (모든 에이전트 읽기 가능)
+nakama/
+├── src/                          # 백엔드 (TypeScript)
+│   ├── index.ts                  # 엔트리포인트
+│   ├── config.ts                 # YAML 설정 로드 + 검증
+│   ├── types.ts                  # 공통 타입 정의
+│   ├── core/
+│   │   ├── registry.ts           # AgentRegistry — 에이전트 CRUD + fs watch
+│   │   ├── router.ts             # MessageRouter — Slack→에이전트 라우팅
+│   │   ├── session.ts            # SessionManager — 세션 생명주기
+│   │   ├── session-files.ts      # 세션 파일 I/O (영속화)
+│   │   ├── memory.ts             # 시스템 프롬프트 조립
+│   │   ├── cron.ts               # CronService — 크론 잡 관리
+│   │   ├── heartbeat.ts          # HeartbeatRunner — 주기적 폴링
+│   │   ├── notifier.ts           # Notifier — Slack 알림/에러 전송
+│   │   ├── usage.ts              # UsageTracker — 토큰 사용량
+│   │   └── llm/
+│   │       ├── factory.ts        # LLM 프로바이더 팩토리
+│   │       ├── provider.ts       # LLM 프로바이더 인터페이스
+│   │       └── pi-provider.ts    # Pi SDK 기반 구현체
+│   ├── slack/
+│   │   ├── app.ts                # SlackGateway — Bolt 이벤트 핸들링
+│   │   ├── commands.ts           # /crew 슬래시 커맨드
+│   │   ├── block-kit.ts          # Block Kit 메시지 포맷
+│   │   ├── response-filter.ts    # 응답 필터링 (길이 제한 등)
+│   │   ├── image-handler.ts      # 이미지 첨부 처리
+│   │   ├── media-parser.ts       # MEDIA: 프로토콜 파싱
+│   │   └── inbound-context.ts    # 인바운드 메시지 컨텍스트
+│   ├── api/
+│   │   ├── server.ts             # Express API 서버
+│   │   ├── sse.ts                # SSE 실시간 이벤트
+│   │   ├── middleware/
+│   │   │   └── auth.ts           # Basic Auth
+│   │   └── routes/
+│   │       ├── agents.ts         # 에이전트 CRUD + 세션/로그
+│   │       └── cron.ts           # 크론 잡 CRUD + 수동 실행
+│   ├── tools/
+│   │   ├── index.ts              # 도구 export
+│   │   ├── web-search.ts         # Brave Search API
+│   │   ├── web-fetch.ts          # URL 페치 + readability
+│   │   └── memory.ts             # MEMORY.md 읽기/쓰기
+│   └── utils/
+│       ├── logger.ts             # 로거
+│       └── duration.ts           # 시간 파싱 유틸
+│
+├── web/                          # 프론트엔드 (React)
+│   └── src/
+│       ├── pages/
+│       │   ├── Dashboard.tsx     # 대시보드 (Overview)
+│       │   ├── AgentList.tsx      # 에이전트 목록
+│       │   ├── AgentDetail.tsx    # 에이전트 상세/설정
+│       │   ├── AgentCreate.tsx    # 에이전트 생성
+│       │   ├── Sessions.tsx       # 세션 목록
+│       │   ├── SessionDetail.tsx  # 세션 대화 내용
+│       │   ├── CronJobs.tsx       # 크론 잡 관리
+│       │   ├── Health.tsx         # 시스템 상태
+│       │   └── Settings.tsx       # 설정
+│       ├── components/
+│       │   ├── Layout.tsx
+│       │   ├── EmptyState.tsx
+│       │   ├── chat/
+│       │   │   ├── ChatBubble.tsx
+│       │   │   ├── SessionSelect.tsx
+│       │   │   └── ToolCallBlock.tsx
+│       │   └── ui/               # shadcn/ui 컴포넌트
+│       ├── hooks/
+│       │   └── useEventSource.ts # SSE 훅
+│       └── lib/
+│           ├── api.ts            # API 클라이언트
+│           ├── message-parser.ts # 메시지 파싱 유틸
+│           └── utils.ts
+│
+├── config.yaml                   # 서버 설정
+├── package.json
+└── docs/
+    ├── architecture.md           # ← 이 파일
+    ├── PRD.md
+    ├── usage-guide.md
+    ├── roadmap/                  # P1~P9 로드맵
+    └── research/                 # 리서치 문서
+```
+
+---
+
+## 4. 핵심 컴포넌트
+
+### 4.1 Agent Registry
+
+에이전트 등록은 **파일시스템 기반 동적 관리**. chokidar로 워크스페이스 감시.
+
+```
+~/.nakama/workspaces/
+├── _shared/                    # 팀 공유 (읽기 전용)
 ├── reviewer/                   # 에이전트 "reviewer"
-│   └── AGENTS.md               # ← 이 파일이 있으면 에이전트로 인식
-├── marketing-bot/              # 에이전트 "marketing-bot"
-│   └── AGENTS.md
-└── new-agent/                  # 폴더 + AGENTS.md 추가 → 자동 등록
-    └── AGENTS.md
+│   ├── AGENTS.md               # 역할/톤/행동 규칙 (사용자 작성)
+│   ├── agent.json              # 메타데이터 (Web UI/API가 관리)
+│   ├── MEMORY.md               # 장기 기억
+│   ├── TOOLS.md                # 도구 메모
+│   ├── HEARTBEAT.md            # 능동적 행동 체크리스트
+│   ├── memory/                 # 일별 로그
+│   └── docs/                   # 도메인 지식
+└── ...
 ```
 
-**동작 방식:**
-- `workspaces/` 하위 디렉토리를 fs.watch로 감시
-- `AGENTS.md`가 있는 디렉토리 = 에이전트
-- 디렉토리 추가/삭제 → 에이전트 자동 등록/해제 (서버 재시작 불필요)
-- Slack 채널 매핑은 `agent.json`에 저장 (Web UI에서 설정)
+- `AGENTS.md` 존재 → 에이전트로 인식
+- 디렉토리 추가/삭제 → 자동 등록/해제 (서버 재시작 불필요)
+- `AgentRegistryEvents`로 변경 이벤트 방출
 
-```typescript
-// Agent Registry
-interface AgentDefinition {
-  id: string;                    // 디렉토리명
-  displayName: string;           // agent.json에서 로드
-  workspacePath: string;         // /workspaces/{id}/
-  slackChannels: string[];       // 멘션 가능한 채널
-  slackUsers: string[];          // DM 매핑된 유저
-  model?: string;                // 모델 오버라이드 (없으면 기본값)
-  enabled: boolean;
-}
+### 4.2 Message Router
 
-// 워크스페이스 스캔
-function scanAgents(rootPath: string): AgentDefinition[] {
-  return fs.readdirSync(rootPath)
-    .filter(dir => dir !== '_shared')
-    .filter(dir => fs.existsSync(path.join(rootPath, dir, 'AGENTS.md')))
-    .map(dir => loadAgentDefinition(rootPath, dir));
-}
-```
-
-**에이전트별 설정 파일:**
-```
-/workspaces/{agent-id}/
-├── AGENTS.md          # 역할, 톤, 행동 규칙 (사용자 작성)
-├── agent.json         # 메타데이터 (Web UI가 관리)
-│   {
-│     "displayName": "코드 리뷰어",
-│     "slackChannels": ["C01CODEREVIEW"],
-│     "slackUsers": ["U01HSKIM"],
-│     "model": "claude-sonnet-4-20250514",
-│     "enabled": true
-│   }
-├── MEMORY.md          # 장기 기억 (에이전트 자동 관리)
-├── TOOLS.md           # 도구 메모 (에이전트 자동 관리)
-├── HEARTBEAT.md       # 능동적 행동 체크리스트 (선택)
-├── memory/            # 일별 로그
-│   ├── 2026-03-01.md
-│   └── 2026-02-28.md
-└── docs/              # 도메인 지식 (사용자 추가)
-```
-
-### 3.2 REST API Server
-
-Web UI 및 외부 연동을 위한 API 레이어.
+Slack 메시지를 에이전트로 라우팅. 채널 모드 기반.
 
 ```
-POST   /api/agents                  # 에이전트 생성
-GET    /api/agents                  # 에이전트 목록
-GET    /api/agents/:id              # 에이전트 상세
-PATCH  /api/agents/:id              # 에이전트 설정 수정
-DELETE /api/agents/:id              # 에이전트 삭제
+채널 모드:
+  - mention: @멘션 시에만 반응
+  - proactive: 채널의 모든 메시지에 반응
 
-GET    /api/agents/:id/logs         # 활동 로그
-GET    /api/agents/:id/sessions     # 세션 목록
-GET    /api/agents/:id/usage        # 토큰 사용량
-
-POST   /api/agents/:id/message      # 에이전트에게 메시지 전송 (API 경유)
-
-GET    /api/health                  # 서버 상태
-GET    /api/config                  # 서버 설정 (읽기 전용)
+라우팅 우선순위:
+  1. 스레드 → 기존 세션의 에이전트
+  2. DM → slackUsers에 매핑된 에이전트
+  3. @멘션 → slackBotUserId로 에이전트 찾기
+  4. 채널 proactive 모드 → 해당 채널의 에이전트
+  5. 매칭 실패 → 컨시어지 응답 (에이전트 목록 안내)
 ```
 
-**에이전트 생성 플로우 (API):**
-```typescript
-// POST /api/agents
-{
-  "id": "reviewer",               // 디렉토리명 (slug)
-  "displayName": "코드 리뷰어",
-  "agentsMd": "# 코드 리뷰어\n\n## 역할\nPR이 올라오면...",
-  "slackChannels": ["C01CODEREVIEW"],
-  "slackUsers": ["U01HSKIM"],
-  "model": "claude-sonnet-4-20250514"  // optional
-}
+리액션 트리거: 특정 이모지 리액션으로 에이전트 호출 가능 (`reactionTriggers`).
 
-// → 서버가 수행하는 일:
-// 1. /workspaces/reviewer/ 디렉토리 생성
-// 2. AGENTS.md 작성
-// 3. agent.json 작성
-// 4. Agent Registry가 fs.watch로 자동 감지 → 등록
-```
+### 4.3 Session Manager
 
-**Phase 1에서는** API 서버를 간단한 Express/Fastify로 구현.
-Web UI는 P1이지만, API 구조는 Phase 1부터 만들어둔다.
+세션 생명주기 관리. Pi SDK의 `createAgentSession()`으로 에이전트 루프 실행.
 
-### 3.3 Slack Bolt (프론트엔드)
+**세션 모드:**
+- `single`: 에이전트당 세션 1개
+- `per-channel`: 채널별 세션
+- `per-thread`: 스레드별 세션
 
-```typescript
-// 이벤트 핸들링
-app.event('app_mention', handler)   // 채널에서 @agent 멘션
-app.event('message', handler)       // DM 수신
-app.event('message', handler)       // 스레드 답장 (thread_ts)
-```
+**세션 영속화:** Pi SDK의 `PiSessionManager`가 JSONL 파일로 대화 히스토리 저장. 각 에이전트 워크스페이스 내 `sessions/` 디렉토리에 저장. 세션 재시작 시 복원.
 
-**Slack → Agent 라우팅:**
-```
-DM              → 발신자에 매핑된 에이전트 (agent.json의 slackUsers)
-@agent 멘션     → 멘션된 에이전트 (Slack Bot User → agent-id 매핑)
-스레드 답장     → 해당 스레드의 세션에 연결
-```
+**세션 TTL 클린업:** 6시간 주기로 만료 세션 정리 (`sessionTTLDays` 기준).
 
-**Agent → Slack 응답:**
-- 스레드 기반 대화 (thread_ts로 연결)
-- 긴 응답은 분할 (Slack 4000자 제한)
-- 코드 블록은 Snippet으로 첨부
-- 진행 상황은 메시지 업데이트 (`chat.update`)
+**동시성:** 에이전트당 메시지 큐. 순차 처리 (maxQueueSize 초과 시 거부).
 
-### 3.4 Message Router
+**Graceful Shutdown:** SIGINT/SIGTERM 시 활성 세션 대기 (최대 30초) 후 순차 종료.
 
-Agent Registry를 참조해서 메시지를 올바른 에이전트로 라우팅.
+### 4.4 Slack Gateway
 
-```typescript
-class MessageRouter {
-  constructor(private registry: AgentRegistry) {}
+`@slack/bolt` Socket Mode 기반. 이벤트 핸들링:
+- `app_mention` — 채널 멘션
+- `message` — DM, 스레드 답장, proactive 채널
+- `reaction_added` — 리액션 트리거
+- `/crew` 슬래시 커맨드 — 에이전트 목록/상태 조회
 
-  route(event: SlackEvent): AgentDefinition | null {
-    // 1. @멘션 → Bot User ID로 에이전트 찾기
-    if (event.type === 'app_mention') {
-      return this.registry.findByBotUserId(event.botUserId);
-    }
-    // 2. DM → 발신자 유저 ID로 매핑된 에이전트 찾기
-    if (event.channel_type === 'im') {
-      return this.registry.findBySlackUser(event.user);
-    }
-    // 3. 스레드 → 기존 세션에서 에이전트 찾기
-    if (event.thread_ts) {
-      return this.registry.findByThread(event.thread_ts);
-    }
-    return null;
-  }
-}
-```
+Slack 응답 처리:
+- 4000자 제한 분할
+- 코드 블록 Snippet 첨부
+- `MEDIA:` 프로토콜로 이미지/파일 첨부
+- 에이전트별 커스텀 프로필 (displayName, icon)
 
-### 3.5 Session Manager
+### 4.5 Cron / Heartbeat
 
-에이전트 세션의 전체 생명주기 관리.
+**CronService:** 에이전트별 크론 잡. config 또는 API로 등록.
+- `at` (일회성), `every` (interval), `cron` (표현식) 스케줄 지원
+- `sessionTarget`: main 세션에 주입 or isolated 세션 생성
+- `deliverTo`: 결과 전송 채널 지정
+- 상태 저장: `~/.nakama/cron-store.json` (source: `config` | `api`)
 
-#### 세션 = Pi agentLoop 인스턴스
+**HeartbeatRunner:** 주기적 폴링. `HEARTBEAT.md` 기반 체크리스트.
+- `activeHours` 설정으로 야간 비활성화
 
-```typescript
-import { createAgentSession } from '@mariozechner/pi-coding-agent';
+### 4.6 이미지/비전 파이프라인
 
-const session = createAgentSession({
-  model: agent.model || config.llm.defaultModel,
-  apiKey: resolveApiKey(config),
-  workingDirectory: agent.workspacePath,
-  tools: ['Bash', 'Read', 'Write', 'Edit', 'WebSearch', 'WebFetch'],
-  systemPrompt: buildSystemPrompt(agent),
-});
-```
+Slack 파일 첨부 → 이미지 비전 처리:
+1. `image-handler.ts`: Slack 파일 URL에서 이미지 다운로드
+2. `sharp`로 리사이즈 (LLM 입력 크기 최적화)
+3. base64 인코딩 → Pi SDK `ImageContent`로 변환
+4. LLM에 멀티모달 메시지로 전달
 
-#### 세션 상태
+텍스트 파일 첨부도 지원 (`ProcessedTextFile` 타입).
+
+### 4.7 에이전트별 제한 (LimitsConfig)
+
+에이전트별로 리소스 제한 설정 가능:
+- `maxConcurrentSessions` — 동시 세션 수 제한
+- `dailyTokenLimit` — 일일 토큰 한도
+- `maxMessageLength` — 메시지 길이 제한
+- `proactiveResponseMinIntervalSec` — proactive 채널 응답 최소 간격
+
+### 4.8 Tool Executor
+
+| 도구 | 출처 | 설명 |
+|------|------|------|
+| Bash, Read, Write, Edit | Pi SDK (codingTools) | 내장 코딩 도구 |
+| WebSearch | 커스텀 | Brave Search API |
+| WebFetch | 커스텀 | URL 페치 + @mozilla/readability |
+| MemoryRead | 커스텀 | MEMORY.md 읽기 |
+| MemoryWrite | 커스텀 | MEMORY.md 쓰기 |
+
+에이전트별 `tools` 필드로 사용 가능한 도구 제한 가능.
+
+### 4.9 Memory System
 
 ```
- [IDLE] ──message──▶ [RUNNING] ──complete──▶ [IDLE]
-   │                    │                       │
-   │                    │ error                 │ idle timeout
-   │                    ▼                       ▼
-   │                [ERROR]                [DISPOSED]
-   │                    │                       │
-   │                 retry                  새 세션
-   │                    │                   (메모리 복원)
-   └────────────────[RUNNING]
+L1: Conversation Context — Pi 내부 messages 배열 (세션 중 유지)
+L2: Daily Log — memory/YYYY-MM-DD.md (오늘+어제 로드)
+L3: Long-term — MEMORY.md (매 세션 로드)
+L4: Identity — AGENTS.md (시스템 프롬프트 주입)
+L5: Domain — docs/ (Read 도구로 필요시 참조)
+L6: Shared — _shared/ (전체 에이전트 읽기 가능)
 ```
 
-#### 동시성
+### 4.10 LLM Provider
+
+Pi SDK 기반. `provider.ts` 인터페이스로 추상화.
 
 ```
-에이전트당:
-  - Active session: 최대 1개 (순차 처리)
-  - 새 메시지 → 큐에 추가, 현재 응답 완료 후 처리
-  - 큐 사이즈: 10 (초과 시 "바쁩니다" 응답)
-
-메시지 큐 (per agent):
-  ┌──────────────────────────────────┐
-  │  msg3 → msg2 → msg1 → [처리중]   │
-  └──────────────────────────────────┘
+config.llm.implementation → factory → PiLlmProvider
+에이전트별 model 오버라이드: agent.model ?? config.llm.defaultModel
 ```
 
-### 3.6 Tool Executor
+현재 Pi 구현만 완료. anthropic-direct / openai-direct는 미구현 (placeholder).
 
-**기본 도구 (모든 에이전트):**
+---
 
-| 도구 | 설명 |
-|------|------|
-| Bash | 셸 명령 실행 (git, gh, curl 등 뭐든 가능) |
-| Read | 파일 읽기 |
-| Write | 파일 쓰기/생성 |
-| Edit | 파일 부분 편집 |
-| WebSearch | 웹 검색 |
-| WebFetch | URL 내용 가져오기 |
+## 5. REST API
 
-**도구 철학:**
-- 기본 도구는 최소한으로 유지
-- Bash가 있으면 git, gh, npm, python 등 뭐든 실행 가능
-- 역할별 전용 도구가 필요하면 그때 플러그인으로 추가
-- 처음부터 많이 넣지 않는다
+인증: Basic Auth (config.yaml `api.auth`, optional).
 
-**보안:**
-- 각 에이전트는 자기 워크스페이스(`/workspaces/{id}/`)에서만 파일 읽기/쓰기
-- `_shared/`는 읽기 전용
-- Bash 실행은 에이전트 워크스페이스를 cwd로 설정
-- 위험한 명령어 블랙리스트 (Phase 2에서 강화)
-
-### 3.7 Memory System
-
-#### 메모리 계층
+### System
 
 ```
-┌──────────────────────────────────────────────────────────┐
-│ L1: Conversation Context (Pi 내부)                        │
-│ - agentLoop의 messages 배열                               │
-│ - 세션 살아있는 동안 자동 유지                              │
-│ - 세션 종료 시 소멸                                        │
-├──────────────────────────────────────────────────────────┤
-│ L2: Daily Log (일별 기록)                                 │
-│ - /workspaces/{agent}/memory/YYYY-MM-DD.md               │
-│ - 에이전트가 중요한 것을 직접 기록                          │
-│ - 세션 시작 시 오늘 + 어제 로드                            │
-├──────────────────────────────────────────────────────────┤
-│ L3: Long-term Memory (장기)                               │
-│ - /workspaces/{agent}/MEMORY.md                          │
-│ - 핵심만 큐레이션 (선호도, 교훈, 패턴)                      │
-│ - 매 세션 시작 시 로드                                     │
-├──────────────────────────────────────────────────────────┤
-│ L4: Agent Identity (정체성)                               │
-│ - /workspaces/{agent}/AGENTS.md                          │
-│ - 역할, 톤, 행동 규칙                                     │
-│ - 시스템 프롬프트로 주입                                   │
-├──────────────────────────────────────────────────────────┤
-│ L5: Domain Knowledge (도메인)                             │
-│ - /workspaces/{agent}/docs/                              │
-│ - 프로젝트 문서, 가이드 등                                 │
-│ - 필요할 때 에이전트가 Read 도구로 읽음                     │
-├──────────────────────────────────────────────────────────┤
-│ L6: Shared Knowledge (팀 공유)                            │
-│ - /workspaces/_shared/                                   │
-│ - 팀 컨벤션, 공통 가이드, 회사 정책                        │
-│ - 모든 에이전트 읽기 가능                                  │
-└──────────────────────────────────────────────────────────┘
+GET    /api/health                         시스템 상태 (slackConnected, agentCount, uptimeSec)
+GET    /api/config                         설정 조회 (시크릿 마스킹)
+GET    /api/events                         SSE 실시간 이벤트 스트림
 ```
 
-#### 세션 시작 시 컨텍스트 조립
-
-```typescript
-function buildSystemPrompt(agent: AgentDefinition): string {
-  const ws = agent.workspacePath;
-
-  const parts = [
-    readFileIfExists(`${ws}/AGENTS.md`),
-    readFileIfExists(`${ws}/MEMORY.md`),
-    readFileIfExists(`${ws}/memory/${today()}.md`),
-    readFileIfExists(`${ws}/memory/${yesterday()}.md`),
-  ].filter(Boolean);
-
-  return parts.join('\n\n---\n\n');
-}
-```
-
-#### 컨텍스트 윈도우 관리
+### Agents
 
 ```
-1. 세션 수명 제한
-   - idle 30분 → 세션 종료
-   - 새 대화 시 새 세션 (메모리에서 복원)
-
-2. 세션 종료 시 자동 요약
-   - 에이전트에게 "오늘 한 일 요약해서 memory/{today}.md에 기록해"
-   - 다음 세션에서 요약본으로 복원
-
-3. 도메인 지식은 참조만
-   - 시스템 프롬프트에 "docs/ 폴더에 참고 자료 있음" 정도만
-   - 필요할 때 Read 도구로 직접 읽게 함
+POST   /api/agents                         에이전트 생성
+GET    /api/agents                         에이전트 목록
+GET    /api/agents/:id                     에이전트 상세
+PUT    /api/agents/:id                     에이전트 전체 수정
+PATCH  /api/agents/:id                     에이전트 부분 수정
+DELETE /api/agents/:id                     에이전트 삭제
+GET    /api/agents/:id/status              에이전트 상태
+GET    /api/agents/:id/logs                활동 로그
+GET    /api/agents/:id/agents-md           AGENTS.md 내용 조회
+POST   /api/agents/:id/message             에이전트에게 메시지 전송
 ```
 
-### 3.8 Scheduler
+### Sessions
 
-```typescript
-// 에이전트별 스케줄 (agent.json에서 로드)
-interface AgentSchedule {
-  name: string;
-  cron?: string;           // "0 9 * * 1-5"
-  every?: string;          // "30m"
-  message: string;
-  deliverTo: string;       // Slack 채널 or "dm"
-}
+```
+GET    /api/sessions                       전체 활성 세션 목록
+GET    /api/sessions/all                   활성+아카이브 통합 (?agentFilter=xxx)
+GET    /api/agents/:id/sessions            에이전트별 세션 목록
+GET    /api/agents/:id/sessions/:sid       세션 상세 (대화 내용)
+GET    /api/agents/:id/sessions/:sid/usage 세션 토큰 사용량
+```
 
-// 레지스트리에서 에이전트 스케줄 로드 → 동적 등록
-registry.onAgentChange((agent) => {
-  scheduler.unregisterAll(agent.id);
-  for (const schedule of agent.schedules) {
-    scheduler.register(agent.id, schedule);
-  }
-});
+### Usage
+
+```
+GET    /api/agents/:id/usage               에이전트별 사용량 (?period=day|week|month)
+GET    /api/usage/summary                  전체 사용량 서머리
+```
+
+### Cron
+
+```
+GET    /api/cron                           크론 잡 목록 (?agentId=xxx)
+POST   /api/cron                           크론 잡 생성 (body: agentId)
+PATCH  /api/cron/:id                       크론 잡 수정
+DELETE /api/cron/:id                       크론 잡 삭제
+POST   /api/cron/:id/run                   크론 잡 수동 실행
 ```
 
 ---
 
-## 4. 워크스페이스 구조
+## 6. Web Dashboard
 
-```
-/workspaces/
-├── _shared/                       # 팀 공유 (모든 에이전트 읽기 가능)
-│   ├── README.md                  # 팀 소개, 공통 가이드
-│   └── docs/
-│       └── ...
-│
-├── reviewer/                      # 에이전트: 코드 리뷰어
-│   ├── AGENTS.md                  # 역할 + 행동 규칙
-│   ├── agent.json                 # 메타데이터 (Slack 매핑 등)
-│   ├── MEMORY.md                  # 장기 기억
-│   ├── TOOLS.md                   # 도구 메모 (선택)
-│   ├── HEARTBEAT.md               # 능동적 행동 체크리스트 (선택)
-│   ├── memory/
-│   │   ├── 2026-03-01.md
-│   │   └── 2026-02-28.md
-│   └── docs/
-│       └── coding-conventions.md
-│
-├── marketing-bot/                 # 에이전트: 마케팅 어시스턴트
-│   ├── AGENTS.md
-│   ├── agent.json
-│   ├── MEMORY.md
-│   └── docs/
-│       └── brand-guide.md
-│
-└── cs-helper/                     # 에이전트: CS 도우미
-    ├── AGENTS.md
-    ├── agent.json
-    ├── MEMORY.md
-    └── docs/
-        └── faq-template.md
-```
+React 19 + Vite + shadcn/ui. 다크 테마. 포트 3001.
+
+**페이지:**
+- **Dashboard** — Overview (에이전트 수, 세션 수, 시스템 상태)
+- **Agents** — 에이전트 목록 카드 뷰 + 생성/상세/설정
+- **Sessions** — 전체 세션 리스트 + 대화 내용 뷰어 (Chat UI)
+- **Cron Jobs** — 크론 잡 관리 UI
+- **Health** — 시스템 상태
+- **Settings** — 설정 뷰어
+
+**실시간:** SSE (`useEventSource` 훅)로 에이전트 상태 변경, 새 메시지 등 수신.
 
 ---
 
-## 5. 설정
+## 7. 설정
 
 ```yaml
-# config.yaml — 서버 설정만. 에이전트 정의는 워크스페이스에.
+# config.yaml
 server:
   port: 3000
 
@@ -464,196 +412,64 @@ slack:
   bot_token: ${SLACK_BOT_TOKEN}
 
 llm:
+  implementation: pi              # pi | anthropic-direct | openai-direct
   provider: anthropic
   defaultModel: claude-sonnet-4-20250514
   auth: setup-token
 
 workspaces:
-  root: /workspaces
-  shared: _shared
+  root: ~/.nakama/workspaces
+  shared: ~/.nakama/shared
 
 api:
   enabled: true
-  port: 3001                    # API 서버 포트 (Slack과 분리)
-  # auth: TBD (Phase 2)
+  port: 3001
+  # auth:                         # optional Basic Auth
+  #   username: admin
+  #   password: ${API_PASSWORD}
+
+notifications:
+  defaultChannel: ${DEFAULT_CHANNEL}
 
 session:
   idleTimeoutMin: 30
   maxQueueSize: 10
   autoSummaryOnDispose: true
+  sessionTTLDays: 30
+
+tools:
+  webSearch:
+    braveApiKey: ${BRAVE_API_KEY}
 ```
 
 ---
 
-## 6. 데이터 흐름
+## 8. 개발 현황
 
-### 6.1 에이전트 생성 (Web UI → API)
+| Phase | 상태 | 주요 내용 |
+|-------|------|----------|
+| P1 | ✅ 완료 | Slack 연동, 에이전트 레지스트리, 세션, 기본 도구, REST API |
+| P2 | ✅ 완료 | 리액션 트리거, 에이전트 CRUD API |
+| P3 | ✅ 완료 | Web UI 기본 |
+| P4 | ✅ 완료 | 멀티에이전트 |
+| P5 | ✅ 완료 | 세션 영속화 |
+| P6 | ✅ 완료 | 프롬프트 템플릿, 채널 라우팅, 컨시어지, 커스텀 툴, 파일 첨부, 이미지 비전 |
+| P7 | ✅ 완료 | /crew 통합, 프로필 커스터마이징, Heartbeat & Cron, 에이전트 메모리, 세션 모드 |
+| P8 | ✅ 완료 | Web Dashboard UI 전면 개편 |
+| P9 | 미착수 | Webhook, Slack Interactive, RAG, MCP, 에이전트간 통신, 감사로그 등 |
 
-```
-Web UI: "새 에이전트" 폼 작성
-  │
-  ▼
-POST /api/agents
-  { id: "reviewer", displayName: "코드 리뷰어", agentsMd: "...", ... }
-  │
-  ▼
-API Server
-  │ 1. /workspaces/reviewer/ 디렉토리 생성
-  │ 2. AGENTS.md 작성
-  │ 3. agent.json 작성
-  │ 4. MEMORY.md 빈 파일 생성
-  ▼
-Agent Registry (fs.watch)
-  │ 새 디렉토리 + AGENTS.md 감지 → 에이전트 등록
-  │ Slack Bot User 매핑 업데이트
-  ▼
-에이전트 사용 가능
-```
-
-### 6.2 일반 대화
-
-```
-User: "@reviewer 이 PR 리뷰해줘 #142"
-  │
-  ▼
-Slack Bolt (app_mention)
-  │
-  ▼
-Message Router
-  │ @reviewer → registry.find("reviewer")
-  │ 에이전트 워크스페이스: /workspaces/reviewer/
-  ▼
-Session Manager
-  │ idle 세션 있으면 재사용, 없으면 새 세션
-  │ buildSystemPrompt() → AGENTS.md + MEMORY.md + 오늘/어제 로그
-  ▼
-Pi agentLoop
-  │ 1. LLM: "이 PR 리뷰해줘 #142"
-  │ 2. tool_use: Bash("gh pr view 142 --json")
-  │ 3. tool_use: Bash("gh pr diff 142")
-  │ 4. 최종 응답 (리뷰 결과)
-  ▼
-Slack Bolt → 스레드에 응답
-```
-
-### 6.3 크론 실행
-
-```
-Scheduler (agent.json의 schedule)
-  │ "매일 9시 스탠드업"
-  ▼
-Session Manager
-  │ reviewer 전용 scheduled session 생성
-  │ max runtime: 5분
-  ▼
-Pi agentLoop → 작업 수행
-  ▼
-Slack → 지정된 채널에 결과 포스트
-  ▼
-Session 종료
-```
+상세 로드맵: `docs/roadmap/P1-ROADMAP.md` ~ `P9-ROADMAP.md`
 
 ---
 
-## 7. 기술 스택
+## 9. 확장 고려사항
 
-| 구분 | 선택 | 이유 |
-|------|------|------|
-| 언어 | TypeScript (Node.js) | Pi SDK = TypeScript, Slack Bolt 지원 |
-| LLM 런타임 | Pi SDK (`@mariozechner/pi-*`) | 에이전트 루프 + 도구 + 멀티 프로바이더 |
-| Slack | `@slack/bolt` | 공식, 이벤트/스레드/인터랙션 |
-| API | Express 또는 Fastify | 경량, TypeScript 지원 |
-| 스케줄러 | `node-cron` | 가볍고 단순 |
-| 프로세스 | 단일 Node.js 프로세스 | Phase 1은 충분, 필요 시 worker threads |
-
-**Pi SDK 패키지:**
-```
-@mariozechner/pi-ai            → LLM 멀티 프로바이더 레이어
-@mariozechner/pi-agent-core    → 에이전트 루프 (tool use 기반)
-@mariozechner/pi-coding-agent  → 코딩 에이전트 + 내장 도구 + SDK 모드
-```
-
----
-
-## 8. 비용 예측
-
-### setup-token 방식 (구독 기반)
-
-| 항목 | 비용 |
-|------|------|
-| Claude Max 구독 | $100-200/월 (per seat) |
-| Slack 앱 | 무료 (자체 호스팅) |
-| 서버 | 기존 인프라 또는 $5-20/월 |
-
-### API 키 방식 (fallback)
-
-| 항목 | 예상 비용 |
-|------|----------|
-| Claude Sonnet | $3/M input, $15/M output |
-| 월 예상 (에이전트 3개, Sonnet) | ~$30-100 |
-
----
-
-## 9. 개발 단계
-
-### Phase 1: PoC (2주)
-
-```
-src/
-├── index.ts              # 엔트리포인트
-├── api/
-│   ├── server.ts         # REST API 서버
-│   └── routes/
-│       └── agents.ts     # 에이전트 CRUD
-├── slack/
-│   └── app.ts            # Slack Bolt
-├── core/
-│   ├── registry.ts       # Agent Registry (fs watch)
-│   ├── router.ts         # Message Router
-│   ├── session.ts        # Session Manager
-│   └── memory.ts         # 시스템 프롬프트 조립
-├── config.ts             # 설정 로드
-└── types.ts              # 공통 타입
-```
-
-**Phase 1 범위:**
-- [ ] Agent Registry (파일시스템 기반 동적 등록)
-- [ ] Slack Bot (DM, 멘션, 스레드)
-- [ ] Message Router
-- [ ] Session Manager (Pi SDK 기반)
-- [ ] 기본 도구 (Bash, Read, Write, Edit, WebSearch, WebFetch)
-- [ ] REST API (에이전트 CRUD)
-- [ ] 메모리 (AGENTS.md + MEMORY.md + daily log)
-- [ ] 개발팀 시나리오 데모
-
-### Phase 2: MVP (4주)
-- [ ] Web UI (에이전트 추가/목록/상태)
-- [ ] Scheduler / Heartbeat
-- [ ] idle timeout + 자동 세션 종료/복원
-- [ ] 메모리 자동 요약
-- [ ] 비용 트래킹 (토큰 사용량)
-- [ ] 에러 복구
-- [ ] 팀 파일럿
-
-### Phase 3: Beta (8주)
-- [ ] Web UI (행동 지침 에디터, 대시보드, 메모리 뷰어)
-- [ ] 역할 템플릿
-- [ ] 팀 권한 관리
-- [ ] 에이전트 간 협업 (메시지 전달)
-- [ ] 비개발 팀 시나리오 검증
-- [ ] 외부 베타
-
----
-
-## 10. 확장 고려사항
-
-지금 구현하지 않지만, 구조적으로 대비하는 것들:
-
-| 확장 | 현재 구조의 대비 | 나중에 추가 |
-|------|----------------|------------|
-| 에이전트 간 협업 | `_shared/` 폴더 (읽기 공유) | 에이전트끼리 메시지 전달 API |
-| 멀티 LLM | `agent.json`에 model 필드 | UI에서 모델 선택 |
-| 커스텀 도구 | Bash로 뭐든 실행 가능 | 플러그인 구조 (도구 패키지) |
-| 스케일링 | 단일 프로세스 | Worker threads → 별도 프로세스 |
-| 권한 관리 | 에이전트별 워크스페이스 격리 | 도구별 권한, Bash 명령어 블랙리스트 |
-| 외부 이벤트 | Slack 이벤트만 | Webhook 수신 (GitHub, Jira 등) |
+| 확장 | 현재 상태 | 향후 |
+|------|----------|------|
+| 에이전트 간 협업 | `_shared/` 폴더 공유 | 메시지 전달 API (P9) |
+| 멀티 LLM | agent.json에 model 필드 ✅ | UI에서 모델 선택 |
+| 커스텀 도구 | WebSearch/WebFetch/Memory 구현 ✅ | 플러그인 구조 |
+| 외부 이벤트 | Slack 이벤트만 | Webhook 수신 (P9) |
+| 권한 관리 | 에이전트별 워크스페이스 격리 | 도구별 권한 |
+| 스케일링 | 단일 Node.js 프로세스 | Worker threads |
+| RAG | 미구현 | 벡터 검색 (P9) |
