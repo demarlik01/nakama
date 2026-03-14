@@ -13,6 +13,7 @@ import {
 import type {
   AgentDefinition,
   AppConfig,
+  LlmAuth,
   SessionMessageContext,
   SessionMode,
   SessionState,
@@ -31,6 +32,8 @@ import {
   supportsPiSession,
 } from './llm/provider.js';
 import { createLlmProvider } from './llm/factory.js';
+import { createConfigAuthStorage } from './llm/config-auth-storage.js';
+import type { AuthStorage } from '@mariozechner/pi-coding-agent';
 import type { ToolDefinition } from '@mariozechner/pi-coding-agent';
 import {
   createWebSearchTool,
@@ -122,6 +125,7 @@ export class SessionManager {
   private cleanupAgentAddedListener?: (agent: AgentDefinition) => void;
   private lastCleanupAt = 0;
   private readonly llmProvider: PiSessionLlmProvider;
+  private readonly authStorage: AuthStorage;
 
   private sseManager?: SSEManager;
   private notifier?: Notifier;
@@ -132,13 +136,19 @@ export class SessionManager {
     private readonly logger: Logger = createLogger('SessionManager'),
     private readonly usageTracker?: UsageTracker,
     llmProvider?: LlmProvider,
+    authStorage?: AuthStorage,
+    private readonly configPath: string = process.env.CONFIG_PATH ?? 'config.yaml',
   ) {
+    this.authStorage = authStorage ?? createConfigAuthStorage(
+      this.config.llm.provider,
+      this.config.llm.auth,
+      this.configPath,
+    );
+
     const provider =
       llmProvider ??
       createLlmProvider({
-        implementation: this.config.llm.implementation,
         provider: this.config.llm.provider,
-        auth: this.config.llm.auth,
       });
 
     if (!supportsPiSession(provider)) {
@@ -388,6 +398,7 @@ export class SessionManager {
       tools: codingTools,
       customTools,
       sessionManager,
+      authStorage: this.authStorage,
     });
 
     session.agent.setSystemPrompt(systemPrompt);
@@ -829,6 +840,7 @@ export class SessionManager {
       tools: codingTools,
       customTools,
       sessionManager,
+      authStorage: this.authStorage,
     });
 
     session.agent.setSystemPrompt(systemPrompt);

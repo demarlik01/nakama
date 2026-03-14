@@ -7,7 +7,7 @@ export interface ResolvedLlmModel {
   model: Model<any>;
 }
 
-export type LlmImplementation = 'pi' | 'anthropic-direct' | 'openai-direct';
+export type LlmImplementation = 'pi';
 
 export interface LlmProviderCapabilities {
   // Session runtime backed by Pi SDK model adapters.

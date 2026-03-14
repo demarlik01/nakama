@@ -142,10 +142,9 @@ export class ApiServer {
         config: {
           server: this.config.server,
           llm: {
-            implementation: this.config.llm.implementation ?? 'pi',
             provider: this.config.llm.provider,
             defaultModel: this.config.llm.defaultModel,
-            auth: '***REDACTED***',
+            auth: { type: this.config.llm.auth.type, '***': 'REDACTED' },
           },
           workspaces: this.config.workspaces,
           api: {

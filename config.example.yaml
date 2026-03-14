@@ -6,10 +6,17 @@ slack:
   bot_token: ${SLACK_BOT_TOKEN}
 
 llm:
-  implementation: pi
   provider: anthropic
   defaultModel: claude-sonnet-4-20250514
-  auth: setup-token
+  auth:
+    type: api-key          # api-key | oauth
+    key: ${ANTHROPIC_API_KEY}
+  # Or use OAuth (run "nakama auth login"):
+  # auth:
+  #   type: oauth
+  #   accessToken: sk-ant-oat01-...
+  #   refreshToken: sk-ant-ort01-...
+  #   expires: 1773354715015
 
 workspaces:
   root: ./workspaces

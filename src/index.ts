@@ -13,6 +13,7 @@ import { createLogger } from './utils/logger.js';
 import { UsageTracker } from './core/usage.js';
 import { Notifier } from './core/notifier.js';
 import { createLlmProvider } from './core/llm/factory.js';
+import { createConfigAuthStorage } from './core/llm/config-auth-storage.js';
 
 async function bootstrap(): Promise<void> {
   const logger = createLogger('Bootstrap');
@@ -27,16 +28,21 @@ async function bootstrap(): Promise<void> {
   await import('fs/promises').then(fs => fs.mkdir(dataDir, { recursive: true }));
   const usageTracker = new UsageTracker(dataDir, logger.child('usage'));
   const llmProvider = createLlmProvider({
-    implementation: config.llm.implementation,
     provider: config.llm.provider,
-    auth: config.llm.auth,
   });
+  const authStorage = createConfigAuthStorage(
+    config.llm.provider,
+    config.llm.auth,
+    configPath,
+  );
   const sessionManager = new SessionManager(
     registry,
     config,
     logger.child('session'),
     usageTracker,
     llmProvider,
+    authStorage,
+    configPath,
   );
   const router = new MessageRouter(registry, sessionManager, logger.child('router'));
   const apiServer = new ApiServer(config, {

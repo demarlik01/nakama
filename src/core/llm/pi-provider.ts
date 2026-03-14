@@ -15,8 +15,6 @@ export class PiLlmProvider implements PiSessionLlmProvider {
 
   constructor(
     private readonly fallbackProvider: string,
-    // Reserved for parity with direct provider implementations.
-    private readonly _auth?: string,
   ) {}
 
   resolveModel(modelSpec: string): ResolvedLlmModel {

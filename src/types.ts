@@ -103,14 +103,27 @@ export interface AgentDefinition {
   tools?: string[];
 }
 
+export interface LlmAuthApiKey {
+  type: 'api-key';
+  key: string;
+}
+
+export interface LlmAuthOAuth {
+  type: 'oauth';
+  accessToken: string;
+  refreshToken: string;
+  expires: number;
+}
+
+export type LlmAuth = LlmAuthApiKey | LlmAuthOAuth;
+
 export interface AppConfig {
   server: { port: number };
   slack: { appToken: string; botToken: string };
   llm: {
-    implementation?: 'pi' | 'anthropic-direct' | 'openai-direct';
     provider: string;
     defaultModel: string;
-    auth: string;
+    auth: LlmAuth;
   };
   workspaces: { root: string; shared: string };
   api: { enabled: boolean; port: number; auth?: { username: string; password: string } };

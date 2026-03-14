@@ -3,7 +3,7 @@ import { readFile } from 'node:fs/promises';
 import path from 'node:path';
 import YAML from 'yaml';
 
-import type { AppConfig } from './types.js';
+import type { AppConfig, LlmAuth } from './types.js';
 
 const ENV_VAR_PATTERN = /\$\{([A-Z0-9_]+)\}/g;
 
@@ -90,10 +90,9 @@ export function validateAppConfig(config: unknown): AppConfig {
       botToken: requireString(slack.bot_token, 'slack.bot_token'),
     },
     llm: {
-      implementation: requireOptionalLlmImplementation(llm.implementation, 'llm.implementation'),
       provider: requireString(llm.provider, 'llm.provider'),
       defaultModel: requireString(llm.defaultModel, 'llm.defaultModel'),
-      auth: requireString(llm.auth, 'llm.auth'),
+      auth: requireLlmAuth(llm.auth, 'llm.auth'),
     },
     workspaces: {
       root: typeof workspaces.root === 'string' ? workspaces.root : path.join(os.homedir(), '.nakama', 'workspaces'),
@@ -176,20 +175,43 @@ function requireOptionalString(value: unknown, pathLabel: string): string | unde
   return requireString(value, pathLabel);
 }
 
-function requireOptionalLlmImplementation(
-  value: unknown,
-  pathLabel: string,
-): 'pi' | 'anthropic-direct' | 'openai-direct' | undefined {
-  if (value === undefined || value === null) {
-    return undefined;
+function requireLlmAuth(value: unknown, pathLabel: string): LlmAuth {
+  // Migration hint: old string format
+  if (typeof value === 'string') {
+    throw new ConfigValidationError(
+      `${pathLabel} must be an object with { type: 'api-key', key: '...' } or { type: 'oauth', ... }. ` +
+      `The old string format (e.g. "setup-token") is no longer supported. ` +
+      `Run "nakama auth set-key" or "nakama auth login" to configure authentication, ` +
+      `or manually update config.yaml:\n\n` +
+      `  llm:\n` +
+      `    auth:\n` +
+      `      type: api-key\n` +
+      `      key: sk-ant-...\n`,
+    );
   }
 
-  const parsed = requireString(value, pathLabel);
-  if (parsed === 'pi' || parsed === 'anthropic-direct' || parsed === 'openai-direct') {
-    return parsed;
+  const auth = requireObject(value, pathLabel);
+  const authType = requireString(auth.type, `${pathLabel}.type`);
+
+  if (authType === 'api-key') {
+    return {
+      type: 'api-key',
+      key: requireString(auth.key, `${pathLabel}.key`),
+    };
   }
 
-  throw new ConfigValidationError(`${pathLabel} must be one of pi|anthropic-direct|openai-direct`);
+  if (authType === 'oauth') {
+    return {
+      type: 'oauth',
+      accessToken: requireString(auth.accessToken, `${pathLabel}.accessToken`),
+      refreshToken: requireString(auth.refreshToken, `${pathLabel}.refreshToken`),
+      expires: requireNumber(auth.expires, `${pathLabel}.expires`),
+    };
+  }
+
+  throw new ConfigValidationError(
+    `${pathLabel}.type must be "api-key" or "oauth", got "${authType}"`,
+  );
 }
 
 function requireNumber(value: unknown, pathLabel: string): number {

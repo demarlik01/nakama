@@ -7,6 +7,9 @@
   "engines": {
     "node": ">=22.0.0"
   },
+  "bin": {
+    "nakama": "dist/cli/index.js"
+  },
   "scripts": {
     "dev": "tsx watch src/index.ts",
     "build": "tsc -p tsconfig.json && cd web && pnpm build",
