@@ -127,7 +127,7 @@ nakama/
 │   │       └── pi-provider.ts    # Pi SDK 기반 구현체
 │   ├── slack/
 │   │   ├── app.ts                # SlackGateway — Bolt 이벤트 핸들링
-│   │   ├── commands.ts           # /crew 슬래시 커맨드
+│   │   ├── commands.ts           # /nakama 슬래시 커맨드
 │   │   ├── block-kit.ts          # Block Kit 메시지 포맷
 │   │   ├── response-filter.ts    # 응답 필터링 (길이 제한 등)
 │   │   ├── image-handler.ts      # 이미지 첨부 처리
@@ -255,7 +255,7 @@ Slack 메시지를 에이전트로 라우팅. 채널 모드 기반.
 - `app_mention` — 채널 멘션
 - `message` — DM, 스레드 답장, proactive 채널
 - `reaction_added` — 리액션 트리거
-- `/crew` 슬래시 커맨드 — 에이전트 목록/상태 조회
+- `/nakama` 슬래시 커맨드 — 에이전트 목록/상태 조회
 
 Slack 응답 처리:
 - 4000자 제한 분할
@@ -454,7 +454,7 @@ tools:
 | P4 | ✅ 완료 | 멀티에이전트 |
 | P5 | ✅ 완료 | 세션 영속화 |
 | P6 | ✅ 완료 | 프롬프트 템플릿, 채널 라우팅, 컨시어지, 커스텀 툴, 파일 첨부, 이미지 비전 |
-| P7 | ✅ 완료 | /crew 통합, 프로필 커스터마이징, Heartbeat & Cron, 에이전트 메모리, 세션 모드 |
+| P7 | ✅ 완료 | /nakama 통합, 프로필 커스터마이징, Heartbeat & Cron, 에이전트 메모리, 세션 모드 |
 | P8 | ✅ 완료 | Web Dashboard UI 전면 개편 |
 | P9 | 미착수 | Webhook, Slack Interactive, RAG, MCP, 에이전트간 통신, 감사로그 등 |
 

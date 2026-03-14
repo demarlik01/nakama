@@ -57,10 +57,10 @@ Slack 채팅창에서 바로 실행 가능합니다. 결과는 **본인에게만
 
 | 커맨드 | 설명 | 예시 |
 |--------|------|------|
-| `/crew agents` | 등록된 에이전트 목록 보기 | `/crew agents` |
-| `/crew assign {agent}` | 현재 채널에 에이전트 배정 | `/crew assign engineer` |
-| `/crew unassign` | 현재 채널의 에이전트 배정 해제 | `/crew unassign` |
-| `/crew switch {agent}` | 현재 채널의 에이전트를 다른 것으로 교체 | `/crew switch marketer` |
+| `/nakama agents` | 등록된 에이전트 목록 보기 | `/nakama agents` |
+| `/nakama assign {agent}` | 현재 채널에 에이전트 배정 | `/nakama assign engineer` |
+| `/nakama unassign` | 현재 채널의 에이전트 배정 해제 | `/nakama unassign` |
+| `/nakama switch {agent}` | 현재 채널의 에이전트를 다른 것으로 교체 | `/nakama switch marketer` |
 
 ### 워크플로우 예시
 
@@ -68,7 +68,7 @@ Slack 채팅창에서 바로 실행 가능합니다. 결과는 **본인에게만
 1. 새 채널 #dev-backend 생성
 2. 봇 초대: /invite @AgentBot
 3. 봇 멘션 → 컨시어지가 안내 (아직 배정 안 됨)
-4. /crew assign engineer → 채널에 engineer 에이전트 배정
+4. /nakama assign engineer → 채널에 engineer 에이전트 배정
 5. @AgentBot 안녕 → engineer 에이전트가 응답
 ```
 
@@ -100,7 +100,7 @@ Slack 채팅창에서 바로 실행 가능합니다. 결과는 **본인에게만
 │ • Engineer (engineer) - 백엔드 개발       │
 │ • Marketer (marketer) - 마케팅 기획       │
 │                                          │
-│ /crew assign {agent} 명령어로 에이전트를 배정하세요│
+│ /nakama assign {agent} 명령어로 에이전트를 배정하세요│
 └──────────────────────────────────────────┘
 ```
 

@@ -61,7 +61,7 @@
 - **Web Dashboard** — 에이전트 관리, 세션 뷰어, 크론 잡, 사용량 모니터링
 - **채널 라우팅** — mention / proactive 모드, 리액션 트리거
 - **에이전트 메모리** — 일별 로그 + 장기 기억 자동 축적
-- **`/crew` 슬래시 커맨드** — Slack에서 에이전트 목록/상태 조회
+- **`/nakama` 슬래시 커맨드** — Slack에서 에이전트 목록/상태 조회
 - **도구** — Bash, Read, Write, Edit, WebSearch, WebFetch, Memory
 
 ## 시작하기
@@ -109,7 +109,7 @@ pnpm test:watch           # watch 모드
 
 ## 문서
 
-- [사용 가이드](docs/usage-guide.md) — Slack 대화, `/crew` 커맨드, 채널 모드, API
+- [사용 가이드](docs/usage-guide.md) — Slack 대화, `/nakama` 커맨드, 채널 모드, API
 - [PRD](docs/PRD.md) — 제품 요구사항
 - [Architecture](docs/architecture.md) — 상세 아키텍처 + API 레퍼런스
 - [Roadmap](docs/roadmap/) — P1~P9 개발 로드맵

@@ -17,7 +17,7 @@ type AckPayload = {
 type AckLike = (response: AckPayload) => Promise<unknown>;
 
 export function registerCommands(app: App, registry: AgentRegistry): void {
-  app.command('/crew', async ({ command, ack }) => {
+  app.command('/nakama', async ({ command, ack }) => {
     const parts = command.text.trim().split(/\s+/);
     const subcommand = parts[0]?.toLowerCase() ?? '';
     const args = parts.slice(1).join(' ').trim();
@@ -47,22 +47,22 @@ export function registerCommands(app: App, registry: AgentRegistry): void {
 
 function buildHelpBlocks(): { text: string; blocks: SlackBlock[] } {
   return {
-    text: '/crew 사용법',
+    text: '/nakama 사용법',
     blocks: [
       {
         type: 'header',
-        text: { type: 'plain_text', text: '/crew', emoji: true },
+        text: { type: 'plain_text', text: '/nakama', emoji: true },
       },
       {
         type: 'section',
         text: {
           type: 'mrkdwn',
           text: [
-            '`/crew agents` — 등록된 에이전트 목록',
-            '`/crew assign {agent}` — 현재 채널에 에이전트 배정 (복수 가능)',
-            '`/crew unassign` — 현재 채널 배정 해제',
-            '`/crew default {agent}` — 채널 기본 에이전트 지정',
-            '`/crew switch {agent}` — 현재 채널 에이전트 변경',
+            '`/nakama agents` — 등록된 에이전트 목록',
+            '`/nakama assign {agent}` — 현재 채널에 에이전트 배정 (복수 가능)',
+            '`/nakama unassign` — 현재 채널 배정 해제',
+            '`/nakama default {agent}` — 채널 기본 에이전트 지정',
+            '`/nakama switch {agent}` — 현재 채널 에이전트 변경',
           ].join('\n'),
         },
       },
@@ -114,7 +114,7 @@ async function handleAgents(ack: AckLike, registry: AgentRegistry): Promise<void
 
 async function handleAssign(ack: AckLike, registry: AgentRegistry, agentInput: string, channelId: string): Promise<void> {
   if (agentInput.length === 0) {
-    await ackEphemeral(ack, buildUsageBlocks('/crew assign {agent}'));
+    await ackEphemeral(ack, buildUsageBlocks('/nakama assign {agent}'));
     return;
   }
 
@@ -149,7 +149,7 @@ async function handleAssign(ack: AckLike, registry: AgentRegistry, agentInput: s
 
 async function handleDefault(ack: AckLike, registry: AgentRegistry, agentInput: string, channelId: string): Promise<void> {
   if (agentInput.length === 0) {
-    await ackEphemeral(ack, buildUsageBlocks('/crew default {agent}'));
+    await ackEphemeral(ack, buildUsageBlocks('/nakama default {agent}'));
     return;
   }
 
@@ -169,7 +169,7 @@ async function handleDefault(ack: AckLike, registry: AgentRegistry, agentInput: 
     await ackEphemeral(
       ack,
       buildErrorBlocks(
-        `*${match.agent.displayName}* (\`${match.agent.id}\`) 은 채널 <#${channelId}> 에 배정되어 있지 않습니다. 먼저 \`/crew assign ${match.agent.id}\` 로 배정하세요.`,
+        `*${match.agent.displayName}* (\`${match.agent.id}\`) 은 채널 <#${channelId}> 에 배정되어 있지 않습니다. 먼저 \`/nakama assign ${match.agent.id}\` 로 배정하세요.`,
       ),
     );
     return;
@@ -203,7 +203,7 @@ async function handleUnassign(ack: AckLike, registry: AgentRegistry, channelId: 
 
 async function handleSwitch(ack: AckLike, registry: AgentRegistry, agentInput: string, channelId: string): Promise<void> {
   if (agentInput.length === 0) {
-    await ackEphemeral(ack, buildUsageBlocks('/crew switch {agent}'));
+    await ackEphemeral(ack, buildUsageBlocks('/nakama switch {agent}'));
     return;
   }
 
