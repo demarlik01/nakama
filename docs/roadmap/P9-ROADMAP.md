@@ -18,6 +18,40 @@
 
 ## 🔴 P0 — 핵심 기능 확장
 
+### 0. CLI 도구 마켓플레이스 (Tool Registry)
+
+**난이도: M~L | 임팩트: 최고**
+
+에이전트가 실제 업무에 쓸 수 있는 CLI 도구들을 Web Dashboard에서 원클릭 설치/관리. OpenClaw 스킬처럼 "클릭하면 설치, 에이전트에 연결" 방식.
+
+**설계 원칙:**
+- 모든 도구는 CLI 기반 (에이전트가 bash tool로 호출)
+- Web UI에서 도구 목록 → 설치 → 에이전트에 할당
+- 설치 = npm/pip/brew 등으로 바이너리 설치 + 인증 설정
+- agent.json의 `tools` 배열에 자동 추가
+
+**초기 도구 셋:**
+
+| 도구 | 소스 | 설치 방식 | 비고 |
+|------|------|-----------|------|
+| Google Calendar | [googleworkspace/cli](https://github.com/googleworkspace/cli) | npm/go install | 일정 조회/생성 |
+| Confluence | 자체 구현 필요 | npm (nakama-tool-confluence) | 페이지 조회/검색 |
+| Jira | 자체 구현 필요 | npm (nakama-tool-jira) | 이슈 조회/생성/업데이트 |
+| Datadog | datadog-cli-ts (`~/dev/datadog-cli-ts`) | npm link | 로그/트레이스/모니터 조회 |
+| Slack Search | slack-cli-ts (`~/dev/slack-cli-ts`) | npm link | 메시지 검색 (이미 구현) |
+
+**체크리스트:**
+- [ ] Tool Registry 스키마 설계 (도구 메타데이터, 설치 스크립트, 인증 요구사항)
+- [ ] Web UI 도구 마켓플레이스 페이지 (목록 + 설치 버튼 + 상태)
+- [ ] 도구 설치 API (`POST /api/tools/:id/install`)
+- [ ] 에이전트 ↔ 도구 연결 UI (에이전트 설정에서 도구 체크박스)
+- [ ] Google Calendar CLI 연동 (OAuth 설정 포함)
+- [ ] Confluence CLI 자체 구현 (REST API v2 래퍼)
+- [ ] Jira CLI 자체 구현 (REST API v3 래퍼)
+- [ ] Datadog CLI 연동 (OAuth2 인증 해결 필요)
+
+---
+
 ### 1. Webhook / 외부 이벤트 트리거
 
 **난이도: M | 임팩트: 높음**
