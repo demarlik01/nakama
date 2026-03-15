@@ -40,6 +40,7 @@ export function ensureAuthIsMap(doc: YAML.Document): void {
   const authNode = doc.getIn(['llm', 'auth']);
   if (authNode !== undefined && authNode !== null &&
       (typeof authNode === 'string' || typeof authNode === 'number')) {
-    doc.setIn(['llm', 'auth'], {});
+    doc.deleteIn(['llm', 'auth']);
+    doc.setIn(['llm', 'auth'], doc.createNode({}));
   }
 }
