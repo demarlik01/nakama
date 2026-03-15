@@ -7,12 +7,12 @@
  *   nakama auth set-key    — Set API key → config.yaml
  *   nakama auth status     — Show current auth configuration
  */
-import { readFileSync, writeFileSync, renameSync, existsSync } from 'node:fs';
 import { resolve, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { createInterface } from 'node:readline';
 import YAML from 'yaml';
 import { loginAnthropic } from '@mariozechner/pi-ai';
+import { readConfigDoc, writeConfigDoc, ensureAuthIsMap } from '../utils/config-yaml.js';
 
 /** Resolve project root (2 levels up from dist/cli/ or src/cli/) */
 function getProjectRoot(): string {
@@ -28,20 +28,6 @@ function getConfigPath(): string {
     return resolve(process.env.CONFIG_PATH);
   }
   return resolve(getProjectRoot(), 'config.yaml');
-}
-
-function readConfigDoc(configPath: string): YAML.Document {
-  if (!existsSync(configPath)) {
-    throw new Error(`Config file not found: ${configPath}`);
-  }
-  const raw = readFileSync(configPath, 'utf8');
-  return YAML.parseDocument(raw);
-}
-
-function writeConfigDoc(configPath: string, doc: YAML.Document): void {
-  const tmpPath = configPath + '.tmp';
-  writeFileSync(tmpPath, doc.toString(), { encoding: 'utf8', mode: 0o600 });
-  renameSync(tmpPath, configPath);
 }
 
 async function prompt(question: string, silent = false): Promise<string> {
@@ -93,11 +79,7 @@ async function handleSetKey(): Promise<void> {
   }
 
   const doc = readConfigDoc(configPath);
-  // If auth is a scalar (old format), replace with empty map first
-  const authNode = doc.getIn(['llm', 'auth']);
-  if (authNode !== undefined && (typeof authNode === 'string' || typeof authNode === 'number')) {
-    doc.setIn(['llm', 'auth'], {});
-  }
+  ensureAuthIsMap(doc);
   doc.setIn(['llm', 'auth', 'type'], 'api-key');
   doc.setIn(['llm', 'auth', 'key'], key);
   // Remove oauth fields if they exist
@@ -127,11 +109,7 @@ async function handleLogin(): Promise<void> {
   );
 
   const doc = readConfigDoc(configPath);
-  // If auth is a scalar (old format), replace with empty map first
-  const authNode = doc.getIn(['llm', 'auth']);
-  if (authNode !== undefined && (typeof authNode === 'string' || typeof authNode === 'number')) {
-    doc.setIn(['llm', 'auth'], {});
-  }
+  ensureAuthIsMap(doc);
   doc.setIn(['llm', 'auth', 'type'], 'oauth');
   doc.setIn(['llm', 'auth', 'accessToken'], credentials.access);
   doc.setIn(['llm', 'auth', 'refreshToken'], credentials.refresh);

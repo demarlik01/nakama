@@ -7,13 +7,12 @@
  *
  * Note: nakama runs as a single instance, so no file locking is needed.
  */
-import { readFileSync, writeFileSync, renameSync, existsSync } from 'node:fs';
 import { resolve } from 'node:path';
-import YAML from 'yaml';
 
 import type { AuthStorageBackend } from '@mariozechner/pi-coding-agent';
 import { AuthStorage } from '@mariozechner/pi-coding-agent';
 import type { LlmAuth } from '../../types.js';
+import { readConfigDoc, writeConfigDoc, ensureAuthIsMap } from '../../utils/config-yaml.js';
 
 type LockResult<T> = {
   result: T;
@@ -60,10 +59,14 @@ function updateConfigYamlAuth(configPath: string, provider: string, storageJson:
 
   // Read existing config.yaml
   const fullPath = resolve(configPath);
-  if (!existsSync(fullPath)) return;
-
-  const rawContent = readFileSync(fullPath, 'utf8');
-  const doc = YAML.parseDocument(rawContent);
+  let doc;
+  try {
+    doc = readConfigDoc(fullPath);
+  } catch {
+    // File not found or unreadable — nothing to update
+    return;
+  }
+  ensureAuthIsMap(doc);
 
   // Validate credential fields at runtime before writing
   if (cred.type === 'api_key') {
@@ -97,10 +100,7 @@ function updateConfigYamlAuth(configPath: string, provider: string, storageJson:
     return;
   }
 
-  // Atomic write: write to temp file then rename (mode 0o600 — secrets are owner-only)
-  const tmpPath = fullPath + '.tmp';
-  writeFileSync(tmpPath, doc.toString(), { encoding: 'utf8', mode: 0o600 });
-  renameSync(tmpPath, fullPath);
+  writeConfigDoc(fullPath, doc);
 }
 
 export class ConfigAuthStorageBackend implements AuthStorageBackend {
@@ -111,10 +111,14 @@ export class ConfigAuthStorageBackend implements AuthStorageBackend {
   constructor(
     private readonly provider: string,
     private readonly auth: LlmAuth,
-    private readonly configPath: string,
+    configPath: string,
   ) {
+    // Resolve immediately so later CWD changes don't break writes
+    this.resolvedConfigPath = resolve(configPath);
     this.currentJson = authToStorageJson(provider, auth);
   }
+
+  private readonly resolvedConfigPath: string;
 
   withLock<T>(fn: (current: string | undefined) => LockResult<T>): T {
     const { result, next } = fn(this.currentJson);
@@ -122,7 +126,7 @@ export class ConfigAuthStorageBackend implements AuthStorageBackend {
     if (next !== undefined) {
       this.currentJson = next;
       try {
-        updateConfigYamlAuth(this.configPath, this.provider, next);
+        updateConfigYamlAuth(this.resolvedConfigPath, this.provider, next);
       } catch (err: unknown) {
         console.error('[ConfigAuthStorage] Failed to persist credentials to config.yaml:', err);
       }
@@ -139,7 +143,7 @@ export class ConfigAuthStorageBackend implements AuthStorageBackend {
       if (next !== undefined) {
         this.currentJson = next;
         try {
-          updateConfigYamlAuth(this.configPath, this.provider, next);
+          updateConfigYamlAuth(this.resolvedConfigPath, this.provider, next);
         } catch (err: unknown) {
           console.error('[ConfigAuthStorage] Failed to persist credentials to config.yaml:', err);
         }
