@@ -184,7 +184,7 @@ export function Layout() {
         </button>
         <div className="flex items-center gap-2 font-bold text-sm">
           <Zap className="h-4 w-4 text-yellow-500" />
-          <span>Agent for Work</span>
+          <span>Nakama</span>
         </div>
 
         {/* Right: version + health + theme toggle */}
