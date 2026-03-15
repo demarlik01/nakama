@@ -18,13 +18,14 @@ const MODELS = [
   // Anthropic
   "anthropic/claude-opus-4-6",
   "anthropic/claude-sonnet-4-6",
+  "anthropic/claude-opus-4-5",
   "anthropic/claude-sonnet-4-20250514",
   // OpenAI
-  "openai/gpt-5.4",
-  "openai/gpt-5.4-pro",
   "openai/gpt-5.3-codex",
   "openai/gpt-5.2-codex",
   "openai/gpt-5.2",
+  "openai/gpt-5-pro",
+  "openai/o4-mini",
   // Google
   "google/gemini-3.1-pro-preview",
   "google/gemini-3-pro-preview",
