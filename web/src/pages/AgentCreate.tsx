@@ -21,15 +21,19 @@ const MODELS = [
   "anthropic/claude-sonnet-4-20250514",
   // OpenAI
   "openai/gpt-5.4",
+  "openai/gpt-5.4-pro",
   "openai/gpt-5.3-codex",
-  "openai/gpt-5.3",
-  "openai/gpt-4.1",
-  "openai/gpt-4.1-mini",
+  "openai/gpt-5.2-codex",
+  "openai/gpt-5.2",
   // Google
-  "google/gemini-3.1-pro",
-  "google/gemini-3.1-flash",
+  "google/gemini-3.1-pro-preview",
+  "google/gemini-3-pro-preview",
+  "google/gemini-3-flash-preview",
   "google/gemini-2.5-pro",
   "google/gemini-2.5-flash",
+  // xAI
+  "xai/grok-4",
+  "xai/grok-4-fast",
 ];
 
 export function AgentCreate() {
