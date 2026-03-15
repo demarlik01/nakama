@@ -282,12 +282,18 @@ Slack 전용 → 채널 추상화 레이어로 Teams/Discord/웹 지원.
 
 ---
 
-### 13. 에이전트 템플릿 마켓플레이스
+### 13. 에이전트 템플릿 / 프리셋
 
-**난이도: L | 임팩트: 장기**
+**난이도: M~L | 임팩트: 중간-장기**
 
-사전 정의된 역할 템플릿(코드 리뷰어, 마케터, CS 도우미 등)을 원클릭 설치.
+에이전트 생성 시 역할 프리셋 선택 → AGENTS.md + tools + HEARTBEAT.md 자동 구성.
 
+**Phase A: 빌트인 프리셋 (M)**
+- Create 폼에 "프리셋 선택" 드롭다운 추가 (코드 리뷰어, DevOps, CS 도우미 등)
+- 프리셋별 AGENTS.md 템플릿 + 추천 tools + 추천 모델 자동 설정
+- "Custom" 선택 시 기존처럼 displayName/description 기반 자동 생성
+
+**Phase B: 커뮤니티 템플릿 마켓플레이스 (L, 장기)**
 - 템플릿 = AGENTS.md + 추천 tools + HEARTBEAT.md + docs/ 번들
 - Web UI에서 "에이전트 추가 → 템플릿 선택" UX
 - 커뮤니티 공유 가능한 포맷

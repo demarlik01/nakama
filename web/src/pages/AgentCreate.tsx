@@ -34,7 +34,6 @@ export function AgentCreate() {
     slackIcon: "",
     slackUsers: "",
     notifyChannel: "",
-    agentsMd: "",
   });
   const [submitting, setSubmitting] = useState(false);
 
@@ -42,8 +41,6 @@ export function AgentCreate() {
     const trimmedId = form.id.trim();
     const channelIds = splitCommaSeparated(form.channels);
     const slackUsers = splitCommaSeparated(form.slackUsers);
-    const trimmedAgentsMd = form.agentsMd.trim();
-
     if (!trimmedId || !form.displayName.trim() || !form.model.trim() || channelIds.length === 0) {
       toast.error("id, displayName, channels, model은 필수입니다.");
       return;
@@ -64,7 +61,6 @@ export function AgentCreate() {
         slackDisplayName: form.slackDisplayName.trim() || undefined,
         slackIcon: form.slackIcon.trim() || undefined,
         notifyChannel: form.notifyChannel.trim() || undefined,
-        agentsMd: trimmedAgentsMd.length > 0 ? form.agentsMd : undefined,
         slackUsers: slackUsers.length > 0 ? slackUsers : undefined,
       });
       toast.success("Agent created");
@@ -166,16 +162,11 @@ export function AgentCreate() {
           />
         </div>
 
-        <div className="grid gap-1.5">
-          <Label>AGENTS.md (optional)</Label>
-          <Textarea
-            value={form.agentsMd}
-            onChange={(e) => setForm({ ...form, agentsMd: e.target.value })}
-            placeholder="비워두면 displayName/description 기반으로 자동 생성됩니다."
-            className="min-h-[220px] font-mono text-sm"
-          />
-        </div>
       </div>
+
+      <p className="text-sm text-muted-foreground mt-2">
+        AGENTS.md는 displayName/description 기반으로 자동 생성됩니다. 생성 후 에이전트 상세 페이지에서 편집할 수 있습니다.
+      </p>
 
       <Button className="mt-4" onClick={handleCreate} disabled={submitting}>
         {submitting ? "Creating..." : "Create Agent"}
