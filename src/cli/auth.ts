@@ -8,13 +8,26 @@
  *   nakama auth status     — Show current auth configuration
  */
 import { readFileSync, writeFileSync, renameSync, existsSync } from 'node:fs';
-import { resolve } from 'node:path';
+import { resolve, dirname } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { createInterface } from 'node:readline';
 import YAML from 'yaml';
 import { loginAnthropic } from '@mariozechner/pi-ai';
 
+/** Resolve project root (2 levels up from dist/cli/ or src/cli/) */
+function getProjectRoot(): string {
+  const thisFile = typeof __dirname !== 'undefined'
+    ? __dirname
+    : dirname(fileURLToPath(import.meta.url));
+  // thisFile = <root>/dist/cli or <root>/src/cli → go up 2 levels
+  return resolve(thisFile, '..', '..');
+}
+
 function getConfigPath(): string {
-  return resolve(process.env.CONFIG_PATH ?? 'config.yaml');
+  if (process.env.CONFIG_PATH) {
+    return resolve(process.env.CONFIG_PATH);
+  }
+  return resolve(getProjectRoot(), 'config.yaml');
 }
 
 function readConfigDoc(configPath: string): YAML.Document {
@@ -80,6 +93,11 @@ async function handleSetKey(): Promise<void> {
   }
 
   const doc = readConfigDoc(configPath);
+  // If auth is a scalar (old format), replace with empty map first
+  const authNode = doc.getIn(['llm', 'auth']);
+  if (authNode !== undefined && (typeof authNode === 'string' || typeof authNode === 'number')) {
+    doc.setIn(['llm', 'auth'], {});
+  }
   doc.setIn(['llm', 'auth', 'type'], 'api-key');
   doc.setIn(['llm', 'auth', 'key'], key);
   // Remove oauth fields if they exist
@@ -109,6 +127,11 @@ async function handleLogin(): Promise<void> {
   );
 
   const doc = readConfigDoc(configPath);
+  // If auth is a scalar (old format), replace with empty map first
+  const authNode = doc.getIn(['llm', 'auth']);
+  if (authNode !== undefined && (typeof authNode === 'string' || typeof authNode === 'number')) {
+    doc.setIn(['llm', 'auth'], {});
+  }
   doc.setIn(['llm', 'auth', 'type'], 'oauth');
   doc.setIn(['llm', 'auth', 'accessToken'], credentials.access);
   doc.setIn(['llm', 'auth', 'refreshToken'], credentials.refresh);

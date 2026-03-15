@@ -72,12 +72,36 @@
 - pnpm
 - Slack App (Socket Mode 활성화, Bot/App Token 발급)
 
-### 개발 모드
+### 설치
 
 ```bash
 pnpm install
 cd web && pnpm install && cd ..
+pnpm build                # CLI 사용을 위해 빌드 필요
+```
 
+### `nakama` CLI 글로벌 설정
+
+`nakama` 명령어를 어디서든 사용하려면 글로벌 링크를 설정합니다:
+
+```bash
+# 1. pnpm 글로벌 bin 디렉토리 설정 (최초 1회)
+pnpm setup
+source ~/.zshrc           # 또는 새 터미널 열기
+
+# 2. nakama 글로벌 링크
+cd /path/to/nakama
+pnpm link --global
+
+# 3. 확인
+nakama --help
+```
+
+> **참고:** `pnpm setup`은 `PNPM_HOME`을 `~/.zshrc`에 추가합니다. 이미 설정돼 있으면 스킵해도 됩니다.
+
+### 개발 모드
+
+```bash
 cp config.example.yaml config.yaml
 # config.yaml에 Slack 토큰 등 입력
 
