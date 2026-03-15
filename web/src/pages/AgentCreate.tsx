@@ -15,11 +15,21 @@ import {
 import { toast } from "sonner";
 
 const MODELS = [
+  // Anthropic
+  "anthropic/claude-opus-4-6",
+  "anthropic/claude-sonnet-4-6",
   "anthropic/claude-sonnet-4-20250514",
-  "anthropic/claude-opus-4-20250514",
+  // OpenAI
+  "openai/gpt-5.4",
+  "openai/gpt-5.3-codex",
+  "openai/gpt-5.3",
   "openai/gpt-4.1",
-  "openai/o3",
+  "openai/gpt-4.1-mini",
+  // Google
+  "google/gemini-3.1-pro",
+  "google/gemini-3.1-flash",
   "google/gemini-2.5-pro",
+  "google/gemini-2.5-flash",
 ];
 
 export function AgentCreate() {
