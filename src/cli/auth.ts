@@ -30,6 +30,41 @@ function getConfigPath(): string {
   return resolve(getProjectRoot(), 'config.yaml');
 }
 
+export function normalizeAnthropicAuthorizationInput(input: string): string {
+  const trimmed = input.trim();
+  if (!trimmed) {
+    return '';
+  }
+
+  try {
+    const url = new URL(trimmed);
+    const code = url.searchParams.get('code') ?? url.hash.slice(1).split('#')[0];
+    const state = url.searchParams.get('state');
+    if (code && state) {
+      return `${code}#${state}`;
+    }
+    if (code) {
+      return code;
+    }
+  } catch {
+    // Fall back to non-URL formats below.
+  }
+
+  if (trimmed.includes('code=')) {
+    const params = new URLSearchParams(trimmed);
+    const code = params.get('code');
+    const state = params.get('state');
+    if (code && state) {
+      return `${code}#${state}`;
+    }
+    if (code) {
+      return code;
+    }
+  }
+
+  return trimmed;
+}
+
 async function prompt(question: string, silent = false): Promise<string> {
   if (silent && process.stdin.isTTY) {
     // Write the prompt ourselves, then read with echo suppressed
@@ -104,7 +139,9 @@ async function handleLogin(): Promise<void> {
       console.log(`  ${url}\n`);
     },
     async () => {
-      return prompt('Enter the authorization code: ');
+      return normalizeAnthropicAuthorizationInput(
+        await prompt('Enter the authorization code or full redirect URL: '),
+      );
     },
   );
 
