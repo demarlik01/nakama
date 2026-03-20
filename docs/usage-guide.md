@@ -243,8 +243,8 @@ Claude 구독 크레딧을 사용합니다. 브라우저 기반 OAuth 로그인 
 **CLI로 설정:**
 
 ```bash
-nakama auth login
-# 브라우저에서 인증 완료 → 토큰 자동 저장
+pnpm nakama auth login
+# 브라우저에서 인증 후 authorization code 또는 redirect URL을 붙여넣으면 토큰 저장
 ```
 
 **config.yaml 직접 편집:**
@@ -262,9 +262,9 @@ llm:
 
 | 명령어 | 설명 |
 |--------|------|
-| `nakama auth login` | OAuth 로그인 (브라우저) |
-| `nakama auth set-key` | API 키 설정 |
-| `nakama auth status` | 현재 인증 상태 확인 |
+| `pnpm nakama auth login` | OAuth 로그인 (브라우저) |
+| `pnpm nakama auth set-key` | API 키 설정 |
+| `pnpm nakama auth status` | 현재 인증 상태 확인 |
 
 ### 참고
 

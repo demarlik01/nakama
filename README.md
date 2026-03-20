@@ -106,9 +106,9 @@ cp config.example.yaml config.yaml
 # config.yaml에 Slack 토큰 등 입력
 
 # LLM 인증 설정 (택 1)
-nakama auth set-key       # 방법 1: API 키 설정
-nakama auth login         # 방법 2: OAuth 로그인 (Claude Max/Pro 구독)
-nakama auth status        # 인증 상태 확인
+pnpm nakama auth set-key  # 방법 1: API 키 설정
+pnpm nakama auth login    # 방법 2: OAuth 로그인 (Claude Max/Pro 구독)
+pnpm nakama auth status   # 인증 상태 확인
 
 pnpm dev                  # 백엔드 (tsx watch, 포트 3000)
 cd web && pnpm dev        # 프론트엔드 (Vite, 포트 5173)
@@ -142,4 +142,3 @@ pnpm test:watch           # watch 모드
 - [PRD](docs/PRD.md) — 제품 요구사항
 - [Architecture](docs/architecture.md) — 상세 아키텍처 + API 레퍼런스
 - [Roadmap](docs/roadmap/) — P1~P9 개발 로드맵
-
