@@ -7,3 +7,7 @@ config.yaml
 usage.db
 usage.db-shm
 usage.db-wal
+
+#omc, omx
+.omc
+.omx

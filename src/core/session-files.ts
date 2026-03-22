@@ -366,7 +366,9 @@ function extractMessageContent(content: unknown): string {
       parts.push(part.text);
     } else if (part.type === 'toolCall' || part.type === 'tool_use') {
       const name = typeof part.name === 'string' ? part.name : typeof part.toolName === 'string' ? part.toolName : 'tool';
-      toolCalls.push(name);
+      const input = isRecord(part.input) ? part.input : isRecord(part.arguments) ? part.arguments : undefined;
+      const detail = extractToolCallDetail(name, input);
+      toolCalls.push(detail);
     }
   }
 
@@ -374,9 +376,37 @@ function extractMessageContent(content: unknown): string {
     return parts.join('');
   }
   if (toolCalls.length > 0) {
-    return `[Tool call: ${toolCalls.join(', ')}]`;
+    return toolCalls.map((detail) => {
+      const spaceIdx = detail.indexOf(': ');
+      if (spaceIdx === -1) return `[Tool call: ${detail}]`;
+      const name = detail.slice(0, spaceIdx);
+      const info = detail.slice(spaceIdx + 2);
+      return `[Tool call: ${name}]\n${info}`;
+    }).join('\n');
   }
   return '(No text content)';
+}
+
+function extractToolCallDetail(name: string, input: Record<string, unknown> | undefined): string {
+  if (!input) return name;
+
+  // bash/exec: show the command
+  if ((name === 'bash' || name === 'exec') && typeof input.command === 'string') {
+    const cmd = input.command.length > 120 ? `${input.command.slice(0, 120)}…` : input.command;
+    return `${name}: \`${cmd}\``;
+  }
+
+  // read/write/edit: show the file path
+  if ((name === 'read' || name === 'write' || name === 'edit') && typeof input.file_path === 'string') {
+    return `${name}: ${input.file_path}`;
+  }
+
+  // grep/search: show the pattern
+  if ((name === 'grep' || name === 'search') && typeof input.pattern === 'string') {
+    return `${name}: ${input.pattern}`;
+  }
+
+  return name;
 }
 
 function toIsoTimestamp(value: unknown): string | undefined {

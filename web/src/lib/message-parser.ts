@@ -90,16 +90,22 @@ export function parseSlackMessage(content: string): ParsedMessage {
 /**
  * Detect assistant messages that are purely tool-call markers like:
  *   [Tool call: web_search]
- *   [Tool call: browser]
+ *   [Tool call: bash]
+ *   dd-cli traces get ...
  */
 export interface ToolCallMarker {
   toolName: string;
+  detail?: string;
 }
 
-const TOOL_CALL_RE = /^\[Tool call:\s*(\w+)\]\s*$/;
+const TOOL_CALL_RE = /^\[Tool call:\s*(\w+)\]/;
 
 export function parseToolCallMarker(content: string): ToolCallMarker | null {
-  const m = content.trim().match(TOOL_CALL_RE);
+  const trimmed = content.trim();
+  const m = trimmed.match(TOOL_CALL_RE);
   if (!m) return null;
-  return { toolName: m[1] };
+  // Everything after the [Tool call: name] line is detail
+  const afterMarker = trimmed.slice(m[0].length).trim();
+  const detail = afterMarker.length > 0 ? afterMarker : undefined;
+  return { toolName: m[1], detail };
 }

@@ -48,13 +48,16 @@ export const ChatBubble = memo(function ChatBubble({ role, content, timestamp, t
   // Tool-call marker → compact badge instead of full bubble
   if (toolCallMarker) {
     return (
-      <div className="flex flex-col gap-1 items-start">
-        <div className="flex items-center gap-1.5 px-1">
-          <div className="flex items-center gap-1.5 text-xs text-muted-foreground italic">
-            <Wrench className="size-3" />
-            <span className="font-mono">{toolCallMarker.toolName}</span>
-          </div>
+      <div className="flex flex-col gap-0.5 items-start px-1">
+        <div className="flex items-center gap-1.5 text-xs text-muted-foreground italic">
+          <Wrench className="size-3" />
+          <span className="font-mono">{toolCallMarker.toolName}</span>
         </div>
+        {toolCallMarker.detail && (
+          <div className="ml-[18px] text-[11px] text-muted-foreground/70 font-mono truncate max-w-[80%]">
+            {toolCallMarker.detail}
+          </div>
+        )}
       </div>
     );
   }
