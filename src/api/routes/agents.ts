@@ -339,11 +339,6 @@ export function createAgentsRouter(deps: AgentsRouterDependencies): Router {
 
 function asCreateAgentParams(value: unknown): CreateAgentParams {
   const body = asObject(value, 'body');
-  const notifyChannel = asOptionalString(body.notifyChannel, 'notifyChannel');
-  const legacyNotifyChannel = asOptionalString(
-    body.errorNotificationChannel,
-    'errorNotificationChannel',
-  );
   const channels = asChannelMap(body.channels, 'channels');
 
   return {
@@ -352,8 +347,6 @@ function asCreateAgentParams(value: unknown): CreateAgentParams {
     slackDisplayName: asOptionalString(body.slackDisplayName, 'slackDisplayName'),
     slackIcon: asOptionalString(body.slackIcon, 'slackIcon'),
     description: asOptionalString(body.description, 'description'),
-    notifyChannel: notifyChannel ?? legacyNotifyChannel,
-    errorNotificationChannel: legacyNotifyChannel,
     agentsMd: asOptionalString(body.agentsMd, 'agentsMd'),
     channels,
     slackUsers: asOptionalStringArray(body.slackUsers, 'slackUsers') ?? [],
@@ -378,18 +371,6 @@ function asUpdateAgentParams(value: unknown): UpdateAgentParams {
   }
   if ('description' in body) {
     payload.description = asOptionalString(body.description, 'description');
-  }
-  if ('notifyChannel' in body || 'errorNotificationChannel' in body) {
-    payload.notifyChannel = asOptionalString(
-      body.notifyChannel ?? body.errorNotificationChannel,
-      'notifyChannel',
-    );
-  }
-  if ('errorNotificationChannel' in body) {
-    payload.errorNotificationChannel = asOptionalString(
-      body.errorNotificationChannel,
-      'errorNotificationChannel',
-    );
   }
   if ('channels' in body) {
     payload.channels = asChannelMap(body.channels, 'channels');

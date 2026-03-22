@@ -374,8 +374,16 @@ export class SlackGateway {
         error: error instanceof Error ? error.message : String(error),
       });
 
-      // Send user-friendly error message
-      const errorMessage = '죄송합니다, 문제가 발생했습니다. 잠시 후 다시 시도해 주세요.';
+      // Send error message with debug info to user channel
+      const errorDetail = sanitizeErrorForUser(
+        error instanceof Error ? error.message : String(error),
+      );
+      const errorMessage = [
+        ':rotating_light: *에러가 발생했습니다*',
+        `• *Agent:* ${route.agent.displayName} (\`${route.agent.id}\`)`,
+        `• *Error:* ${errorDetail}`,
+        `• *Time:* ${new Date().toISOString()}`,
+      ].join('\n');
       await this.replyToSlack(
         client,
         say,
@@ -1104,3 +1112,18 @@ const IDENTITY_OVERRIDE_RETRYABLE_ERRORS = new Set([
 
 const SLACK_ICON_EMOJI_PATTERN = /^:[a-zA-Z0-9_+-]+:$/;
 const SLACK_MAX_USERNAME_LENGTH = 80;
+
+const MAX_USER_ERROR_LENGTH = 200;
+
+/** Strip internal paths and truncate error messages for user-facing display. */
+function sanitizeErrorForUser(raw: string): string {
+  // Mask absolute file paths (e.g. /Users/foo/bar/src/file.ts → .../src/file.ts)
+  let sanitized = raw.replace(/\/(?:Users|home|var|tmp)\/[^\s:]+/g, (match) => {
+    const parts = match.split('/');
+    return `.../${parts.slice(-2).join('/')}`;
+  });
+  if (sanitized.length > MAX_USER_ERROR_LENGTH) {
+    sanitized = `${sanitized.slice(0, MAX_USER_ERROR_LENGTH)}…`;
+  }
+  return sanitized;
+}

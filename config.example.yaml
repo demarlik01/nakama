@@ -7,7 +7,7 @@ slack:
 
 llm:
   provider: anthropic
-  defaultModel: claude-sonnet-4-20250514
+  defaultModel: claude-sonnet-4-5
   auth:
     type: api-key          # api-key | oauth
     key: ${ANTHROPIC_API_KEY}
@@ -25,9 +25,6 @@ workspaces:
 api:
   enabled: true
   port: 3001
-
-notifications:
-  defaultChannel: ${SLACK_NOTIFY_CHANNEL}
 
 session:
   idleTimeoutMin: 30

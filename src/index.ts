@@ -11,7 +11,6 @@ import { HeartbeatRunner } from './core/heartbeat.js';
 import { SlackGateway } from './slack/app.js';
 import { createLogger } from './utils/logger.js';
 import { UsageTracker } from './core/usage.js';
-import { Notifier } from './core/notifier.js';
 import { createLlmProvider } from './core/llm/factory.js';
 import { createConfigAuthStorage } from './core/llm/config-auth-storage.js';
 
@@ -85,11 +84,6 @@ async function bootstrap(): Promise<void> {
   // Wire SSE manager and cron service
   sessionManager.setSSEManager(apiServer.getSSEManager());
   apiServer.setCronService(cronService);
-
-  // Wire error notifier
-  const notifier = new Notifier(config, logger.child('notifier'));
-  notifier.setSlackPoster((channel, text) => slackGateway.postMessage(channel, text));
-  sessionManager.setNotifier(notifier);
 
   await registry.start();
   await sessionManager.initialize();

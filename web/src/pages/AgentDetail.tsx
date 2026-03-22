@@ -370,19 +370,6 @@ export function AgentDetail() {
                 }
               />
             </div>
-            <div className="grid gap-1.5">
-              <Label>Notify Channel</Label>
-              <Input
-                value={form.notifyChannel ?? ""}
-                onChange={(e) =>
-                  setForm({
-                    ...form,
-                    notifyChannel: e.target.value,
-                  })
-                }
-                placeholder="C01234567"
-              />
-            </div>
           </div>
 
             {/* Resource Limits */}

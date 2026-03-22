@@ -261,6 +261,14 @@ export class CronService {
             consecutiveErrors: job.state.consecutiveErrors,
           });
 
+          // Notify the agent's delivery channel or first configured channel
+          const agent = this.registry.getById(job.agentId);
+          const errorChannel = job.deliverTo ?? this.resolveDefaultChannel(job.agentId);
+          if (errorChannel) {
+            const notice = `:rotating_light: *크론 작업 에러*\n• *Agent:* ${agent?.displayName ?? job.agentId} (\`${job.agentId}\`)\n• *Job:* \`${job.id}\`\n• *Error:* ${errorMessage.slice(0, 200)}\n• *Time:* ${new Date().toISOString()}`;
+            void this.postToSlack(errorChannel, notice, job.agentId).catch(() => {});
+          }
+
           // Retry logic for transient errors
           if (job.state.consecutiveErrors <= MAX_RETRY_ATTEMPTS) {
             const backoffIdx = Math.min(job.state.consecutiveErrors - 1, RETRY_BACKOFF_MS.length - 1);

@@ -85,9 +85,6 @@ export interface AgentDefinition {
   slackDisplayName?: string;
   slackIcon?: string;
   description?: string;
-  notifyChannel?: string;
-  // Deprecated alias; kept for backward compatibility.
-  errorNotificationChannel?: string;
   workspacePath: string;
   channels: Record<string, ChannelConfig>;
   slackUsers: string[];
@@ -127,7 +124,6 @@ export interface AppConfig {
   };
   workspaces: { root: string; shared: string };
   api: { enabled: boolean; port: number; auth?: { username: string; password: string } };
-  notifications?: { adminSlackUser?: string; defaultChannel?: string };
   session: {
     idleTimeoutMin: number;
     maxQueueSize: number;
@@ -146,9 +142,6 @@ export interface AgentMetadata {
   slackDisplayName?: string;
   slackIcon?: string;
   description?: string;
-  notifyChannel?: string;
-  // Deprecated alias; kept for backward compatibility.
-  errorNotificationChannel?: string;
   channels: Record<string, ChannelConfig>;
   slackUsers: string[];
   slackBotUserId?: string;
@@ -169,9 +162,6 @@ export interface CreateAgentParams {
   slackDisplayName?: string;
   slackIcon?: string;
   description?: string;
-  notifyChannel?: string;
-  // Deprecated alias; kept for backward compatibility.
-  errorNotificationChannel?: string;
   agentsMd?: string;
   channels: Record<string, ChannelConfig>;
   slackUsers: string[];
@@ -191,9 +181,6 @@ export interface UpdateAgentParams {
   slackDisplayName?: string;
   slackIcon?: string;
   description?: string;
-  notifyChannel?: string;
-  // Deprecated alias; kept for backward compatibility.
-  errorNotificationChannel?: string;
   channels?: Record<string, ChannelConfig>;
   slackUsers?: string[];
   slackBotUserId?: string;

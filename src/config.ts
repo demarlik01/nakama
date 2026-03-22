@@ -63,10 +63,6 @@ export function validateAppConfig(config: unknown): AppConfig {
   const workspaces = (typeof root.workspaces === 'object' && root.workspaces !== null ? root.workspaces : {}) as Record<string, unknown>;
   const api = requireObject(root.api, 'api');
   const apiAuth = requireOptionalApiAuth(api.auth, 'api.auth');
-  const notifications =
-    root.notifications === undefined
-      ? undefined
-      : requireObject(root.notifications, 'notifications');
   const session = requireObject(root.session, 'session');
   const configuredSessionTtlDays =
     session.sessionTTLDays ?? session.ttlDays ?? 30;
@@ -103,19 +99,6 @@ export function validateAppConfig(config: unknown): AppConfig {
       port: requireNumber(api.port, 'api.port'),
       auth: apiAuth,
     },
-    notifications:
-      notifications === undefined
-        ? undefined
-        : {
-            adminSlackUser: requireOptionalString(
-              notifications.adminSlackUser,
-              'notifications.adminSlackUser',
-            ),
-            defaultChannel: requireOptionalString(
-              notifications.defaultChannel,
-              'notifications.defaultChannel',
-            ),
-          },
     session: {
       idleTimeoutMin: requireNumber(session.idleTimeoutMin, 'session.idleTimeoutMin'),
       maxQueueSize: requireNumber(session.maxQueueSize, 'session.maxQueueSize'),
@@ -166,13 +149,6 @@ function requireString(value: unknown, pathLabel: string): string {
     throw new ConfigValidationError(`${pathLabel} must be a non-empty string`);
   }
   return value;
-}
-
-function requireOptionalString(value: unknown, pathLabel: string): string | undefined {
-  if (value === undefined || value === null) {
-    return undefined;
-  }
-  return requireString(value, pathLabel);
 }
 
 function requireLlmAuth(value: unknown, pathLabel: string): LlmAuth {

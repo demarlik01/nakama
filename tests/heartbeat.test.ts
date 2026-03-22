@@ -22,8 +22,6 @@ function createAgent(overrides: Partial<AgentDefinition> = {}): AgentDefinition 
     slackDisplayName: overrides.slackDisplayName,
     slackIcon: overrides.slackIcon,
     description: overrides.description,
-    notifyChannel: overrides.notifyChannel,
-    errorNotificationChannel: overrides.errorNotificationChannel,
     slackBotUserId: overrides.slackBotUserId,
     model: overrides.model,
     schedules: overrides.schedules,

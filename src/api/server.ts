@@ -151,7 +151,6 @@ export class ApiServer {
             ...this.config.api,
             ...(this.config.api.auth ? { auth: { username: '***', password: '***' } } : {}),
           },
-          notifications: this.config.notifications,
           session: this.config.session,
           slack: {
             appToken: redactSecret(this.config.slack.appToken),

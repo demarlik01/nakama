@@ -167,10 +167,18 @@ export class HeartbeatRunner {
         try {
           await this.tick(schedule.agent);
         } catch (err: unknown) {
+          const errorMsg = err instanceof Error ? err.message : String(err);
           this.logger.error('Heartbeat tick failed', {
             agentId: schedule.agentId,
-            error: err instanceof Error ? err.message : String(err),
+            error: errorMsg,
           });
+
+          // Notify the agent's first configured channel
+          const errorChannel = getChannelIds(schedule.agent)[0];
+          if (errorChannel) {
+            const notice = `:rotating_light: *하트비트 에러*\n• *Agent:* ${schedule.agent.displayName} (\`${schedule.agentId}\`)\n• *Error:* ${errorMsg.slice(0, 200)}\n• *Time:* ${new Date().toISOString()}`;
+            void this.postToSlack(errorChannel, notice, schedule.agentId).catch(() => {});
+          }
         }
 
         // Advance schedule

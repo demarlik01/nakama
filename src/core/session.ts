@@ -24,7 +24,6 @@ import { buildSystemPrompt } from './memory.js';
 import type { AgentRegistry } from './registry.js';
 import type { UsageTracker } from './usage.js';
 import type { SSEManager } from '../api/sse.js';
-import type { Notifier } from './notifier.js';
 import { getAgentSessionDir, listPersistedSessions } from './session-files.js';
 import {
   type LlmProvider,
@@ -128,7 +127,6 @@ export class SessionManager {
   private readonly authStorage: AuthStorage;
 
   private sseManager?: SSEManager;
-  private notifier?: Notifier;
 
   constructor(
     private readonly registry: AgentRegistry,
@@ -179,10 +177,6 @@ export class SessionManager {
 
   setSSEManager(sse: SSEManager): void {
     this.sseManager = sse;
-  }
-
-  setNotifier(notifier: Notifier): void {
-    this.notifier = notifier;
   }
 
   async initialize(): Promise<void> {
@@ -712,22 +706,6 @@ export class SessionManager {
           status: 'error',
           error: runtime.state.error,
         });
-
-        // Notify admin of error
-        if (this.notifier) {
-          const agentDef = this.registry.getById(agent.id);
-          void this.notifier.notifyError({
-            agentId: agent.id,
-            agentName: agentDef?.displayName ?? agent.id,
-            error: runtime.state.error ?? 'Unknown error',
-            timestamp: new Date(),
-            channel:
-              agentDef?.notifyChannel ??
-              agentDef?.errorNotificationChannel ??
-              agent.notifyChannel ??
-              agent.errorNotificationChannel,
-          });
-        }
 
         item.reject(error);
       }

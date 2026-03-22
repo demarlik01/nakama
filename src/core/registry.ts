@@ -229,7 +229,6 @@ export class AgentRegistry extends EventEmitter<AgentRegistryEvents> {
         slackDisplayName: params.slackDisplayName,
         slackIcon: params.slackIcon,
         description: params.description,
-        notifyChannel: params.notifyChannel ?? params.errorNotificationChannel,
         channels,
         slackUsers: params.slackUsers,
         model: params.model,
@@ -271,7 +270,6 @@ export class AgentRegistry extends EventEmitter<AgentRegistryEvents> {
       slackDisplayName: existing.slackDisplayName,
       slackIcon: existing.slackIcon,
       description: existing.description,
-      notifyChannel: existing.notifyChannel ?? existing.errorNotificationChannel,
       channels: existing.channels,
       slackUsers: existing.slackUsers,
       slackBotUserId: existing.slackBotUserId,
@@ -286,27 +284,12 @@ export class AgentRegistry extends EventEmitter<AgentRegistryEvents> {
 
     const hasSlackDisplayName = Object.prototype.hasOwnProperty.call(params, 'slackDisplayName');
     const hasSlackIcon = Object.prototype.hasOwnProperty.call(params, 'slackIcon');
-    const hasNotifyChannel =
-      Object.prototype.hasOwnProperty.call(params, 'notifyChannel') ||
-      Object.prototype.hasOwnProperty.call(params, 'errorNotificationChannel');
-    const hasErrorNotificationChannel = Object.prototype.hasOwnProperty.call(
-      params,
-      'errorNotificationChannel',
-    );
 
     const mergedMetadata: AgentMetadata = {
       displayName: params.displayName ?? currentMetadata.displayName,
       slackDisplayName: hasSlackDisplayName ? params.slackDisplayName : currentMetadata.slackDisplayName,
       slackIcon: hasSlackIcon ? params.slackIcon : currentMetadata.slackIcon,
       description: params.description ?? currentMetadata.description,
-      notifyChannel: hasNotifyChannel
-        ? params.notifyChannel ?? params.errorNotificationChannel
-        : currentMetadata.notifyChannel ?? currentMetadata.errorNotificationChannel,
-      errorNotificationChannel: hasErrorNotificationChannel
-        ? params.errorNotificationChannel
-        : hasNotifyChannel
-          ? undefined
-          : currentMetadata.errorNotificationChannel,
       channels: resolveChannels(params.channels, currentMetadata.channels),
       slackUsers: params.slackUsers ?? currentMetadata.slackUsers,
       slackBotUserId: params.slackBotUserId ?? currentMetadata.slackBotUserId,
@@ -521,8 +504,6 @@ export class AgentRegistry extends EventEmitter<AgentRegistryEvents> {
       slackDisplayName: metadata.slackDisplayName,
       slackIcon: metadata.slackIcon,
       description: metadata.description,
-      notifyChannel: metadata.notifyChannel ?? metadata.errorNotificationChannel,
-      errorNotificationChannel: metadata.errorNotificationChannel,
       workspacePath,
       channels: metadata.channels,
       slackUsers: metadata.slackUsers,
@@ -794,14 +775,6 @@ async function readJsonIfExists(filePath: string): Promise<AgentMetadata | null>
       slackDisplayName: asOptionalString(parsed.slackDisplayName, 'slackDisplayName'),
       slackIcon: asOptionalString(parsed.slackIcon, 'slackIcon'),
       description: asOptionalString(parsed.description, 'description'),
-      notifyChannel: asOptionalString(
-        parsed.notifyChannel ?? parsed.errorNotificationChannel,
-        'notifyChannel',
-      ),
-      errorNotificationChannel: asOptionalString(
-        parsed.errorNotificationChannel,
-        'errorNotificationChannel',
-      ),
       channels,
       slackUsers: asStringArray(parsed.slackUsers, 'slackUsers'),
       enabled: asBoolean(parsed.enabled, 'enabled'),

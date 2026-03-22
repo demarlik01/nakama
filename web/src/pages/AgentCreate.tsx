@@ -48,7 +48,6 @@ export function AgentCreate() {
     slackDisplayName: "",
     slackIcon: "",
     slackUsers: "",
-    notifyChannel: "",
   });
   const [submitting, setSubmitting] = useState(false);
 
@@ -75,7 +74,6 @@ export function AgentCreate() {
         description: form.description.trim() || undefined,
         slackDisplayName: form.slackDisplayName.trim() || undefined,
         slackIcon: form.slackIcon.trim() || undefined,
-        notifyChannel: form.notifyChannel.trim() || undefined,
         slackUsers: slackUsers.length > 0 ? slackUsers : undefined,
       });
       toast.success("Agent created");
@@ -165,15 +163,6 @@ export function AgentCreate() {
             value={form.slackUsers}
             onChange={(e) => setForm({ ...form, slackUsers: e.target.value })}
             placeholder="U12345678, U87654321"
-          />
-        </div>
-
-        <div className="grid gap-1.5">
-          <Label>Notify Channel</Label>
-          <Input
-            value={form.notifyChannel}
-            onChange={(e) => setForm({ ...form, notifyChannel: e.target.value })}
-            placeholder="C01234567 (optional)"
           />
         </div>
 

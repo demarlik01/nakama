@@ -11,9 +11,6 @@ export interface Agent {
   slackDisplayName?: string;
   slackIcon?: string;
   description?: string;
-  notifyChannel?: string;
-  // Deprecated alias for old payloads.
-  errorNotificationChannel?: string;
   model?: string;
   channels: Record<string, ChannelConfig>;
   slackUsers: string[];
@@ -38,9 +35,6 @@ export interface CreateAgentInput {
   slackDisplayName?: string;
   slackIcon?: string;
   description?: string;
-  notifyChannel?: string;
-  // Deprecated alias for old payloads.
-  errorNotificationChannel?: string;
   model: string;
   channels: Record<string, ChannelConfig>;
   slackUsers?: string[];
@@ -131,19 +125,12 @@ export const updateAgent = (id: string, data: Partial<Agent>) => {
   if ("slackIcon" in payload) {
     payload.slackIcon = normalizeOptionalPatchString(payload.slackIcon);
   }
-  if ("notifyChannel" in payload) {
-    payload.notifyChannel = normalizeOptionalPatchString(payload.notifyChannel);
-  }
-  if (!("notifyChannel" in payload) && "errorNotificationChannel" in payload) {
-    payload.notifyChannel = normalizeOptionalPatchString(payload.errorNotificationChannel);
-  }
   if ("limits" in payload) {
     payload.limits = normalizeLimitsPatchPayload(payload.limits);
   }
   if ("channels" in payload) {
     payload.channels = normalizeChannels(payload.channels);
   }
-  delete payload.errorNotificationChannel;
   return api<AgentEnvelope>(`/api/agents/${encodeURIComponent(id)}`, { method: "PUT", body: JSON.stringify(payload) })
     .then((r) => normalizeAgent(r.agent));
 };
@@ -211,21 +198,14 @@ function normalizeAgent(agent: ApiAgent): Agent {
   return {
     ...agent,
     channels: normalizeChannels(agent.channels, agent.slackChannels),
-    notifyChannel: agent.notifyChannel ?? agent.errorNotificationChannel,
     status: normalizedStatus ?? (agent.enabled ? "idle" : "disabled"),
   };
 }
 
 function normalizeCreateAgentInput(input: CreateAgentInput): CreateAgentInput {
-  const notifyChannel = normalizeOptionalCreateString(input.notifyChannel);
-  const legacyNotifyChannel = normalizeOptionalCreateString(input.errorNotificationChannel);
-  const mergedNotifyChannel = notifyChannel ?? legacyNotifyChannel;
-
   return {
     ...input,
     channels: normalizeChannels(input.channels),
-    notifyChannel: mergedNotifyChannel,
-    errorNotificationChannel: undefined,
   };
 }
 
@@ -272,15 +252,6 @@ function normalizeOptionalPatchString(value: unknown): unknown {
 
   const trimmed = value.trim();
   return trimmed === "" ? null : trimmed;
-}
-
-function normalizeOptionalCreateString(value: string | undefined): string | undefined {
-  if (typeof value !== "string") {
-    return undefined;
-  }
-
-  const trimmed = value.trim();
-  return trimmed === "" ? undefined : trimmed;
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
